@@ -5,6 +5,75 @@ Releases with a migration that drops or rewrites data are marked **⚠ data migr
 
 ## Unreleased
 
+### Publish to your website, Facebook and YouTube from one place
+- The editor's **Publish** card lists every destination as a tick box: your website(s), Facebook
+  Pages and YouTube channels. Tick one or several, then choose **Now**, **At a set time** or
+  **Save as draft**, and confirm once. Every destination is checked before anything is queued;
+  if one cannot take the article (for example a Reel with a horizontal video), nothing is sent
+  and the reason is shown.
+- **Facebook Page** destinations post the article as a link post (linking to the article on your
+  website when it is published there in the same request), as a photo post with the featured
+  image, or as a **Reel** (vertical video, 3–90 s). Connect once with *Facebook Login*; NEWSWIRE
+  stores the Page token encrypted and never asks for a Facebook password.
+- **YouTube channel** destinations upload the article's video with its title, description and
+  tags, as public, unlisted or private. Uploads resume after a dropped connection. Unpublishing
+  makes the video private (it is never deleted).
+- Facebook and YouTube posts wait (up to 30 minutes) for the website so they can link to it.
+  Slow uploads (YouTube, Reels, WordPress with a video) run in the background; the card shows
+  their progress.
+- Scheduling several destinations keeps the article *scheduled* until the last one runs.
+  Moving the article back to draft, review or archive cancels anything still queued.
+
+### Uploaded videos
+- Articles can carry one uploaded **MP4 or MOV** video (up to `NEWSWIRE_MAX_VIDEO_BYTES`,
+  default 1 GB). It is shown on the article, uploaded once to WordPress, sent to YouTube or
+  posted as a Facebook Reel. The editor says whether it can be a Reel or a YouTube Short.
+- The browser sends videos in 8 MB pieces and continues where it stopped if the connection drops.
+  (Next.js cuts proxied request bodies at 10 MB, so a single large request failed whenever the
+  web app served `/api` itself, as in the default Docker setup.) Unfinished uploads are deleted
+  after 24 hours. Videos are **not** included in backups (see RECOVERY.md).
+
+### Upgrade notes
+- Migration `0002` adds the `video_assets` table, `articles.video_id` and
+  `publishing_jobs.options`. It does not change existing data. Run `python -m app.cli migrate`
+  (Docker runs it on start).
+- Facebook and YouTube need an app of your own and `NEWSWIRE_PUBLIC_BASE_URL` set to the public
+  address: see PUBLISHING.md.
+
+### Collection: why sources looked "blocked"
+- A robots.txt that could not be read (a timeout, a slow TLS handshake, DNS trouble on the
+  NEWSWIRE server) used to mark the source **Blocked by robots.txt** and pause it for at least an
+  hour, with no reason given. On a server with a flaky connection, a VPN or a DNS filter, every
+  newspaper looked blocked. It is now an ordinary error that names the real cause ("Connection
+  timed out", "resolves to 198.18.0.4 … VPN in fake-IP mode", "certificate is not valid") and
+  says it is a connection problem; it retries with the normal backoff. *Blocked* now only ever
+  means the publisher's robots.txt disallows the feed.
+- robots.txt follows RFC 9309: longest match wins (Allow wins a tie), `*` and `$` wildcards,
+  repeated groups for the same agent are merged, `User-agent: news` no longer matches
+  `NEWSWIRE`, and a failed refresh keeps using the last copy read (up to 7 days). A failed read
+  is retried once. (Python's `urllib.robotparser` used the first matching rule and ignored
+  wildcards.)
+- HTTP errors say who refused and why: bot-protection challenges (Cloudflare, Sucuri, Imperva,
+  DDoS-Guard) are named, 403/404/429/5xx are explained. NEWSWIRE still does not get around bot
+  checks, logins or paywalls.
+
+### Full article text
+- **Load full article** in a report's detail panel reads the story from the publisher's page on
+  request and keeps it with the report: JSON-LD `articleBody`, then `itemprop="articleBody"`,
+  then the block with the most paragraph text and fewest links. robots.txt is respected; 401, 402
+  and 403 are reported, not bypassed. At most 30 requests per user per minute.
+- **Start article from this** creates a draft with the headline, the text (or the feed summary
+  when the page cannot be read) and the report as its source reference. **Copy text** copies it.
+
+### SQLite
+- File databases use WAL and a 30-second busy timeout, so saving an article while the collector
+  writes a large batch waits instead of failing with "database is locked".
+
+### Video
+- The article editor embeds YouTube, Facebook, Vimeo and Dailymotion videos from a pasted link.
+  The sanitiser keeps an `<iframe>` only when it points at one of these players; the preview's
+  Content-Security-Policy allows exactly those frame sources.
+
 ### Testing
 - Playwright browser suite (`cd frontend && npm run test:e2e`): first-run setup, adding a source
   from a local fixture feed, a headline with its live preview, verifying a match, starting,

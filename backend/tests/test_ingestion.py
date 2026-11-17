@@ -150,7 +150,7 @@ def test_http_error_sets_backoff_and_does_not_raise(db, feeds):
     collect_source(db, source, client_factory=feeds.factory())
     db.refresh(source)
     assert source.consecutive_failures == 2
-    assert source.last_error == "HTTP 503"
+    assert source.last_error.startswith("HTTP 503")
     assert source.next_fetch_at >= before + timedelta(seconds=500)  # 300s * 2^(2-1) with jitter
     assert db.scalar(select(func.count()).select_from(SourceFetchLog).where(SourceFetchLog.status == "error")) == 2
 

@@ -91,9 +91,33 @@ def resolve_public(host: str, port: int, allow_private: bool) -> list[tuple]:
             addr = info[4][0]
             if not is_public_address(addr):
                 raise BlockedDestination(
-                    f"Blocked destination: {host} resolves to a non-public address"
+                    f"Blocked destination: {host} resolves to {addr}, a non-public address. "
+                    + non_public_hint(addr)
                 )
     return infos
+
+
+_FAKE_IP = ipaddress.ip_network("198.18.0.0/15")
+
+
+def non_public_hint(addr: str) -> str:
+    """Why a news site might resolve to a non-public address, in words an operator can act on."""
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return ""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip in _FAKE_IP:
+        return ("198.18.0.0/15 is the range VPN and proxy apps (Clash, sing-box, Surge, Shadowrocket and "
+                "others) hand out in fake-IP mode, so every site looks blocked. Switch the VPN to "
+                "real-IP/redir-host mode or exclude this server from it.")
+    if ip.is_loopback or ip.is_unspecified:
+        return ("The site's own DNS, or a DNS filter or ad blocker on this network, points it at this "
+                "machine. If every site shows this, check this server's DNS settings.")
+    if ip.is_private:
+        return "A local DNS server, VPN or proxy on this network is answering for the site."
+    return ""
 
 
 class GuardedBackend(httpcore.SyncBackend):
@@ -189,15 +213,17 @@ def safe_request(
     max_bytes: int | None = None,
     max_redirects: int = 5,
     allow_private: bool | None = None,
+    follow_redirects: bool = True,
     **kwargs: Any,
 ) -> SafeResponse:
+    """follow_redirects=False returns 3xx responses as they are (YouTube's 308 means "upload incomplete")."""
     max_bytes = max_bytes or get_settings().max_feed_bytes
     redirects: list[str] = []
     current = url
     for _ in range(max_redirects + 1):
         validate_url(current, allow_private=allow_private)
         with client.stream(method, current, headers=headers, **kwargs) as resp:
-            if resp.status_code in REDIRECT_CODES and resp.headers.get("location"):
+            if follow_redirects and resp.status_code in REDIRECT_CODES and resp.headers.get("location"):
                 redirects.append(current)
                 current = urljoin(current, resp.headers["location"])
                 if resp.status_code == 303:
@@ -221,13 +247,59 @@ def describe_error(exc: Exception) -> str:
     """Short, log-safe description of an outbound request failure."""
     if isinstance(exc, UnsafeURLError):
         return f"Blocked URL: {exc}"
+    if isinstance(exc, httpx.ConnectTimeout):
+        return "Connection timed out (the site, or this server's internet connection, did not answer in time)"
     if isinstance(exc, httpx.TimeoutException):
-        return "Request timed out"
+        return "Request timed out (the site answered too slowly)"
     if isinstance(exc, httpx.ConnectError):
         msg = str(exc)
-        return msg if msg.startswith("Blocked destination") else f"Connection failed: {msg}"[:300]
+        if msg.startswith("Blocked destination"):
+            return msg[:600]
+        if "CERTIFICATE_VERIFY_FAILED" in msg:
+            return ("The site's HTTPS certificate is not valid (" + msg.split("certificate verify failed:")[-1].split("(_ssl")[0].strip()
+                    + "). NEWSWIRE does not skip certificate checks; the publisher has to fix it.")[:300]
+        if msg.startswith("DNS lookup failed"):
+            return (msg + " (the name does not exist, or this server's DNS is not working)")[:300]
+        return f"Connection failed: {msg}"[:300]
     if isinstance(exc, ResponseTooLarge):
         return str(exc)
     if isinstance(exc, httpx.TooManyRedirects):
         return "Too many redirects"
     return f"{type(exc).__name__}: {exc}"[:300]
+
+
+def looks_like_bot_check(resp: SafeResponse) -> bool:
+    """A bot-protection interstitial (Cloudflare, Sucuri, Imperva, DDoS-Guard and similar)
+    rather than the page or feed itself."""
+    h = resp.headers
+    if h.get("cf-mitigated", "").lower() == "challenge":
+        return True
+    head = resp.content[:6000].lower()
+    markers = (b"just a moment...", b"challenge-platform", b"cf-browser-verification", b"attention required! | cloudflare",
+               b"sucuri website firewall", b"_incapsula_resource", b"ddos-guard", b"checking your browser",
+               b"enable javascript and cookies to continue", b"captcha")
+    return resp.status_code in (403, 429, 503) and any(m in head for m in markers)
+
+
+def describe_http_status(resp: SafeResponse) -> str:
+    """A short explanation of a non-2xx answer, honest about who is refusing and why."""
+    code = resp.status_code
+    if looks_like_bot_check(resp):
+        server = resp.headers.get("server", "").split("/")[0] or "the publisher's bot protection"
+        return (f"HTTP {code}: the publisher's bot protection ({server}) asked for a browser check. "
+                "NEWSWIRE does not get around these checks; ask the publisher to allow its "
+                "user agent, or use another feed from the same paper.")
+    if code in (401, 402):
+        return f"HTTP {code} (login or payment required; NEWSWIRE does not bypass access controls)"
+    if code == 403:
+        return (f"HTTP 403: the site refused the request (access restricted; NEWSWIRE does not "
+                "bypass access controls). Sites sometimes refuse whole hosting providers' networks; "
+                "if every site does this, the server's IP address may be blocked.")
+    if code == 404:
+        return "HTTP 404: the address no longer exists (the feed may have moved; try Find feeds)"
+    if code == 429:
+        return "HTTP 429: the site asked NEWSWIRE to slow down; it will wait before trying again"
+    if code >= 500:
+        return f"HTTP {code}: the site had a server error"
+    return f"HTTP {code}"
+

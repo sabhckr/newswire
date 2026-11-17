@@ -56,6 +56,11 @@ The feeds NEWSWIRE collects from. Only add feeds you are allowed to monitor.
   (5, 10, 20 … minutes for a 5-minute source) up to six hours, with a little jitter. A source
   disallowed by robots.txt is not fetched. NEWSWIRE re-checks robots.txt at most hourly and
   resumes only if the publisher allows it.
+* **Blocked** and **error** are different. *Blocked by robots.txt* means the publisher's
+  robots.txt disallows the feed. If robots.txt cannot be *read* (a timeout, DNS or TLS trouble),
+  the source shows an error with the real cause and is retried normally. When every source fails
+  the same way, the problem is the NEWSWIRE server's connection, not the newspapers: see
+  [Troubleshooting](DEPLOYMENT.md#troubleshooting).
 
 ## Live News
 
@@ -69,6 +74,11 @@ without moving the list under you, or switch on **Auto-refresh**.
 * Click a report to open its detail panel: summary, link to the original, places (with role,
   method and confidence), other feeds it appeared in, duplicates, its cluster and the headlines
   it matched. Researchers can correct a location and mark the report verified or archived.
+* **Load full article** reads the whole story from the publisher's page and shows it in the
+  panel with its lead photo; it is kept with the report. **Copy text** copies headline, text and
+  link. **Start article from this** opens a new draft with the text and the report as its
+  source. The text belongs to the publisher: rewrite it and credit the source before publishing.
+  Video and photo stories, live pages and pages that need JavaScript may have no text to read.
 
 ## My Headlines
 
@@ -123,10 +133,18 @@ out, remove or add reports, lock it so automatic grouping leaves it alone, and a
 ## Articles
 
 * The list has tabs by status with counts, search and sorting.
-* The **editor** has the headline, subtitle, body (headings, lists, quotes, links), slug,
+* The **editor** has the headline, subtitle, body (headings, lists, quotes, links, embedded
+  videos), slug,
   excerpt, SEO title and description, category, tags, featured image with caption and credit,
   and source references. **Preview** shows the article as readers will see it, at desktop or
   phone width.
+* **Video** card: upload your own MP4 or MOV video (up to 1 GB by default). It goes on your
+  website, to YouTube or as a Facebook Reel. The card says whether it can be a Reel (vertical,
+  3–90 s) or a YouTube Short. If the connection drops, the upload continues by itself; keep the
+  page open until it finishes, then save the article.
+* **Embed video** (toolbar) takes a YouTube, Facebook, Vimeo or Dailymotion link and inserts the
+  player. It is published with the article. WordPress keeps the player only when the connected
+  account may post unfiltered HTML (administrators on a single site).
 * Save with the button or ⌘S. If someone else saved in the meantime, you get a conflict
   warning with **Load latest**, not a silent overwrite.
 * The side panel's **Workflow** tab moves the article through
@@ -135,12 +153,21 @@ out, remove or add reports, lock it so automatic grouping leaves it alone, and a
 
 ## Publishing
 
-* **Publish** an approved article from the editor: choose a destination, then *publish now*,
-  *schedule* or *send as draft*. NEWSWIRE always asks you to confirm.
+* **Publish** an approved article from the editor's Publish card:
+  1. **Where:** tick your website, Facebook Page, YouTube channel, or several. For Facebook choose
+     *Post* or *Reel*; for YouTube choose who can see it. Write a caption or leave it empty to use
+     the headline and excerpt.
+  2. **When:** *Now*, *At a set time* (your local time) or *Save as draft*.
+  3. Confirm. Facebook and YouTube posts link to the article on your website.
+  Grey entries say why they cannot be used (not connected yet, no video).
+* Connect Facebook and YouTube once under **Publishing → Destinations** (admin): add the
+  destination, then *Connect* and sign in. See [PUBLISHING.md](PUBLISHING.md) for creating the
+  Facebook app or Google project it needs.
 * **Publishing → Queue:** every job with its status, attempts and errors. Retry or cancel jobs,
   or run the queue now.
-* **Destinations** (admin): the built-in public API, WordPress sites and webhooks. Use **Test
-  connection** first.
+* **Destinations** (admin): the built-in public API, WordPress sites (username and application
+  password), webhooks, Facebook Pages and YouTube channels. Use **Test connection** first;
+  *Connect*, *Reconnect* and *Disconnect* manage Facebook and YouTube sign-ins.
 * **Policy** (admin): auto-publishing (off by default) and the template-marker block.
 * **Webhook format:** the payload and how to verify signatures. See [PUBLISHING.md](PUBLISHING.md).
 

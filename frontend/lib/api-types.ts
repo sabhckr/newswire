@@ -27,6 +27,7 @@ export interface ArticleIn {
   category_id?: string | null;
   featured_image_id?: string | null;
   featured_image_caption?: string | null;
+  video_id?: string | null;
   geo_entity_ids?: string[] | null;
   tags?: string[] | null;
   sources?: ArticleSourceIn[] | null;
@@ -80,6 +81,8 @@ export interface ArticleOut {
   featured_image_id: string | null;
   featured_image: ImageOut | null;
   featured_image_caption: string | null;
+  video_id?: string | null;
+  video?: VideoOut | null;
   geo_entity_ids: unknown[] | null;
   approved_at: string | null;
   tags: TagOut[];
@@ -222,12 +225,25 @@ export interface ClusterUpdateIn {
   reset_title?: boolean;
 }
 
+export interface ConnectionOut {
+  connected: boolean;
+  account_name?: string | null;
+  account_url?: string | null;
+  client_id?: string | null;
+  login_config_id?: string | null;
+  redirect_uri: string;
+  connected_at?: string | null;
+  pages?: SocialPageOut[];
+}
+
 export interface DestinationIn {
   name: string;
-  kind: "wordpress" | "webhook";
-  base_url: string;
+  kind: "wordpress" | "webhook" | "facebook" | "youtube";
+  base_url?: string | null;
   username?: string | null;
   secret?: string | null;
+  client_id?: string | null;
+  login_config_id?: string | null;
   is_active?: boolean;
   is_commercial?: boolean;
   auto_publish?: boolean;
@@ -246,6 +262,7 @@ export interface DestinationOut {
   last_checked_at: string | null;
   last_check_status: string | null;
   created_at: string;
+  connection?: ConnectionOut | null;
 }
 
 export interface DestinationUpdateIn {
@@ -253,6 +270,8 @@ export interface DestinationUpdateIn {
   base_url?: string | null;
   username?: string | null;
   secret?: string | null;
+  client_id?: string | null;
+  login_config_id?: string | null;
   is_active?: boolean | null;
   is_commercial?: boolean | null;
   auto_publish?: boolean | null;
@@ -261,6 +280,10 @@ export interface DestinationUpdateIn {
 export interface EventLocationIn {
   entity_id: string;
   role?: "event" | "article";
+}
+
+export interface FacebookPageIn {
+  page_id: string;
 }
 
 export interface FetchLogOut {
@@ -375,6 +398,8 @@ export interface JobOut {
   article_headline?: string | null;
   destination_id: string;
   destination_name?: string | null;
+  destination_kind?: string | null;
+  options?: Record<string, unknown> | null;
   action: string;
   status: string;
   article_version: number;
@@ -519,12 +544,30 @@ export interface PublicationOut {
   published_version: number | null;
   last_synced_at: string | null;
   sync_error: string | null;
+  warning?: string | null;
 }
 
 export interface PublishIn {
   destination_id: string;
   mode?: "immediate" | "draft" | "scheduled";
   scheduled_for?: string | null;
+}
+
+export interface PublishManyIn {
+  targets: PublishTargetIn[];
+  mode?: "immediate" | "draft" | "scheduled";
+  scheduled_for?: string | null;
+}
+
+export interface PublishOptionsIn {
+  format?: "post" | "reel" | null;
+  privacy?: "public" | "unlisted" | "private" | null;
+  message?: string | null;
+}
+
+export interface PublishTargetIn {
+  destination_id: string;
+  options?: PublishOptionsIn;
 }
 
 export interface ResearchUpdateIn {
@@ -539,10 +582,20 @@ export interface SetupIn {
   password: string;
 }
 
+export interface SocialPageOut {
+  id: string;
+  name: string;
+}
+
 export interface SourceBrief {
   id: string;
   name: string;
   publisher: string;
+}
+
+export interface SourceDiscoverIn {
+  url: string;
+  respect_robots?: boolean;
 }
 
 export interface SourceIn {
@@ -645,4 +698,32 @@ export interface UserUpdateIn {
   display_name?: string | null;
   roles?: ("admin" | "editor" | "researcher" | "viewer")[] | null;
   is_active?: boolean | null;
+}
+
+export interface VideoOut {
+  id: string;
+  title: string | null;
+  original_filename: string | null;
+  mime: string;
+  file_size: number;
+  width: number | null;
+  height: number | null;
+  duration_seconds: number | null;
+  created_at: string;
+  url?: string;
+  reel_problems?: string[];
+  is_short?: boolean;
+}
+
+export interface VideoUploadOut {
+  upload_id: string;
+  size: number;
+  received: number;
+  chunk_size: number;
+}
+
+export interface VideoUploadStartIn {
+  filename?: string | null;
+  title?: string | null;
+  size: number;
 }

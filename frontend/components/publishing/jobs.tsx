@@ -17,7 +17,11 @@ export const ACTION_LABEL: Record<string, string> = {
 };
 
 export function JobStatus({ job }: { job: JobOut }) {
-  if (job.status === "pending" && job.scheduled_for && job.attempts === 0) return <StatusBadge status="scheduled" />;
+  const future = !!job.scheduled_for && new Date(job.scheduled_for).getTime() > Date.now();
+  if (job.status === "pending" && job.scheduled_for && job.attempts === 0 && future) return <StatusBadge status="scheduled" />;
+  const waiting = Array.isArray((job.options as { after_jobs?: unknown } | null)?.after_jobs);
+  if (job.status === "pending" && job.attempts === 0 && waiting) return <StatusBadge status="pending" label="Waiting for website" />;
+  if (job.status === "running") return <StatusBadge status="running" label={job.destination_kind === "youtube" || (job.options as { format?: string } | null)?.format === "reel" ? "Uploading" : "Running"} />;
   if (job.status === "pending" && job.attempts > 0) return <StatusBadge status="pending" label={`Retrying (${job.attempts}/${job.max_attempts})`} />;
   return <StatusBadge status={job.status} />;
 }
@@ -87,9 +91,10 @@ export function JobActions({ job, canAct }: { job: JobOut; canAct: boolean }) {
             const ok = await confirm({
               title: job.scheduled_for ? "Cancel this scheduled publication?" : "Cancel this job?",
               body: job.scheduled_for
-                ? "The article returns to Approved and will not be published at the scheduled time."
+                ? `Nothing is sent to ${job.destination_name ?? "this destination"} at the scheduled time.`
                 : "The job stops retrying. You can request publication again later.",
               confirmLabel: "Cancel job",
+              cancelLabel: "Keep it",
               destructive: true,
             });
             if (ok) cancel.mutate();

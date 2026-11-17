@@ -30,6 +30,7 @@ import { PublishPanel } from "@/components/articles/publish-panel";
 import { RichEditor } from "@/components/articles/rich-editor";
 import { SourcesEditor } from "@/components/articles/sources-editor";
 import { TagInput } from "@/components/articles/tag-input";
+import { VideoCard } from "@/components/articles/video-card";
 import { WorkflowPanel } from "@/components/articles/workflow-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Time } from "@/components/ui/time";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { PERMS, useSession } from "@/lib/session";
-import type { ArticleIn, ArticleOut, AssignmentOut, AuditOut, CategoryOut, ImageOut, TagOut } from "@/lib/types";
+import type { ArticleIn, ArticleOut, AssignmentOut, AuditOut, CategoryOut, ImageOut, TagOut, VideoOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function Counter({ value, max }: { value: string; max: number }) {
@@ -79,6 +80,7 @@ export default function ArticleEditorPage() {
   const [conflict, setConflict] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState<ImageOut | null>(null);
+  const [uploadedVideo, setUploadedVideo] = useState<VideoOut | null>(null);
   const editCount = useRef(0);
   const initialHtml = useRef<string>("");
 
@@ -95,6 +97,7 @@ export default function ArticleEditorPage() {
       setDraft(d);
       setBaseVersion(a.version);
       setPicked(null);
+      setUploadedVideo(null);
       editCount.current += 1;
       setBodyDirty(false);
       setConflict(false);
@@ -245,6 +248,12 @@ export default function ArticleEditorPage() {
     const fi = article.data?.featured_image;
     return fi && fi.id === draft.featured_image_id ? fi : null;
   }, [draft?.featured_image_id, picked, article.data?.featured_image]);
+  const video = useMemo(() => {
+    if (!draft?.video_id) return null;
+    if (uploadedVideo?.id === draft.video_id) return uploadedVideo;
+    const v = article.data?.video;
+    return v && v.id === draft.video_id ? v : null;
+  }, [draft?.video_id, uploadedVideo, article.data?.video]);
 
   // --- render ------------------------------------------------------------------------------
   if (article.isLoading || (article.data && !draft)) {
@@ -377,7 +386,7 @@ export default function ArticleEditorPage() {
       ) : null}
       {pendingReset ? (
         <InlineAlert tone="warning" className="mb-4" title="Saving will send this article back to review">
-          It is currently {a.status === "scheduled" ? "scheduled" : "approved"}. Changes to the headline, subtitle, body or
+          It is currently {a.status === "scheduled" ? "scheduled" : "approved"}. Changes to the headline, subtitle, body, video or
           featured image need an editor’s approval again{a.status === "scheduled" ? ", and the scheduled publication is cancelled" : ""}.
         </InlineAlert>
       ) : null}
@@ -506,6 +515,16 @@ export default function ArticleEditorPage() {
               )}
             </CardBody>
           </Card>
+
+          <VideoCard
+            video={video}
+            videoId={draft.video_id}
+            readOnly={readOnly}
+            onChange={(v) => {
+              setUploadedVideo(v);
+              set("video_id", v ? v.id : null);
+            }}
+          />
 
           <Card>
             <CardHeader title="Sources" icon={Link2} description="Listed at the end of the article. Link to the reporting you relied on." />

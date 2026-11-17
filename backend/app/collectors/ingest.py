@@ -25,7 +25,15 @@ from app.collectors.page_meta import clean_page_title, fetch_page_metadata, look
 from app.collectors.parsers import FeedParseError, ParsedEntry, looks_like_sitemap, parse_feed, parse_sitemap
 from app.core.config import get_settings
 from app.core.db import is_postgres, utcnow
-from app.core.http import ResponseTooLarge, UnsafeURLError, describe_error, make_client, safe_request
+from app.core.http import (
+    ResponseTooLarge,
+    SafeResponse,
+    UnsafeURLError,
+    describe_error,
+    describe_http_status,
+    make_client,
+    safe_request,
+)
 from app.core.text import bangla_share, content_hash
 from app.core.urls import host_of, safe_normalize
 from app.models import (
@@ -132,11 +140,8 @@ def fetch_http(client: httpx.Client, snap: SourceSnapshot) -> FetchOutcome:
     t0 = time.monotonic()
     out = FetchOutcome(source_id=snap.id, status="error", started_at=started)
     try:
-        if snap.respect_robots:
-            allowed, reason = robots.is_allowed(client, snap.feed_url)
-            if not allowed:
-                out.status, out.error = "blocked", reason
-                return out
+        if snap.respect_robots and not _robots_ok(client, snap.feed_url, out):
+            return out
         headers = {"Accept": "application/rss+xml, application/atom+xml, application/feed+json, application/json, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.5"}
         if snap.etag:
             headers["If-None-Match"] = snap.etag
@@ -167,11 +172,21 @@ def fetch_http(client: httpx.Client, snap: SourceSnapshot) -> FetchOutcome:
     return out
 
 
-def _http_error(out: FetchOutcome, resp: httpx.Response) -> None:
+def _robots_ok(client: httpx.Client, url: str, out: FetchOutcome) -> bool:
+    """Checks robots.txt. A publisher's "Disallow" is status "blocked"; a robots.txt that could not be
+    read is a connection problem, so it is an ordinary "error" with the real cause, retried with the
+    normal backoff instead of being shown as the publisher blocking NEWSWIRE."""
+    verdict = robots.check(client, url)
+    if verdict.allowed:
+        return True
+    out.status = "blocked" if verdict.kind == "disallowed" else "error"
+    out.error = verdict.reason
+    return False
+
+
+def _http_error(out: FetchOutcome, resp: SafeResponse) -> None:
     out.status = "error"
-    out.error = f"HTTP {resp.status_code}"
-    if resp.status_code in (401, 402, 403):
-        out.error += " (access restricted; NEWSWIRE does not bypass access controls)"
+    out.error = describe_http_status(resp)
     ra = resp.headers.get("retry-after")
     if ra and ra.isdigit():
         out.retry_after = int(ra)
@@ -202,11 +217,8 @@ def _follow_sitemap_index(client: httpx.Client, snap: SourceSnapshot, out: Fetch
     if child is None:
         out.status, out.error = "error", "Sitemap index lists no sitemaps"
         return
-    if snap.respect_robots:
-        allowed, reason = robots.is_allowed(client, child)
-        if not allowed:
-            out.status, out.error = "blocked", reason
-            return
+    if snap.respect_robots and not _robots_ok(client, child, out):
+        return
     resp = safe_request(client, "GET", child, headers={"Accept": "application/xml, text/xml;q=0.9, */*;q=0.5"})
     out.http_status = resp.status_code
     if not 200 <= resp.status_code < 300:

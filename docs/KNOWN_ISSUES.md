@@ -11,9 +11,17 @@ to do about it.
 | Caddy, Nginx and systemd configs | Not exercised. | Treat as templates. |
 | Pages outside the main browser flows | The Playwright suite (`frontend/e2e/`, Chromium only, SQLite) covers setup, sources, headlines, research, the article editor, publishing to the built-in API and unpublishing, plus a 375 px overflow check of every sidebar page and theme switching. The Image Library, WordPress and webhook destinations, users and roles, source import, scheduled publishing and the worker's own polling are covered by API tests only. | Extend `frontend/e2e/` when changing those pages. |
 | WordPress connector | Tested against a mocked REST API, not a live WordPress site. | Use *Test connection* and *Publish as draft* first. |
+| Facebook and YouTube connectors | Written to the documented Graph API v23.0 and YouTube Data API v3 and tested against in-process fakes of those APIs, **not against real Facebook or Google accounts**. The sign-in redirect to Facebook was checked in a browser. | Connect a test Page or channel and publish one article with *Post*, one *Reel* and one *Unlisted* YouTube upload before relying on them. |
 | Openverse / Wikimedia Commons | Parsers tested on recorded response shapes; live calls depend on those services. | Search returns a clear provider error when they are unavailable. |
 
 ## Limitations by design
+
+* **Facebook:** Pages only (Facebook does not let apps post to personal profiles or, since 2024,
+  to groups). No drafts; *Unpublish* deletes the post. Reels must be vertical and 3–90 seconds.
+* **YouTube:** unaudited Google projects upload as private, and the free quota allows about six
+  uploads a day. A Google project left in *Testing* disconnects after 7 days.
+* **Videos are not converted.** NEWSWIRE checks the MP4/MOV container (size, length,
+  orientation) but does not transcode; a codec a platform rejects is reported by that platform.
 
 * **Lexical matching only.** NEWSWIRE matches words and phrases, not meaning. Synonyms must be
   entered by hand. Stemming is light: English plurals and Bangla case endings and plural markers
@@ -70,6 +78,12 @@ to do about it.
   Bangladesh Post, The Asian Age, Ajkaler Khobor, The Daily Messenger and Dhaka Courier offered
   no feed or sitemap at all. Daily Sangram, BTV, Deepto TV, The Independent and some regional
   papers could not be reached. Try *Find feeds* again later; publishers change their sites.
+  Rechecked on 17 November 2026 with the fixed robots.txt handling: Daily Sangram's robots.txt
+  is readable (its first answer is slow; the retry now gets it), BTV serves a self-signed
+  certificate, The Independent timed out, and Bangla Insider's DNS points at 127.0.0.1.
+* **Full article text** depends on the page: video and photo stories, live pages and text that
+  only appears after JavaScript runs have none to read. Ads or "read more" lines between
+  paragraphs occasionally come through; edit them out in the draft.
 * **Feeds change.** The pack was verified on one day. A feed that moves or stops shows up as a
   failing source on the Sources page and in System → failing sources.
 * **Feed timestamps.** Several Bangladeshi feeds publish Dhaka time labelled as UTC, or no time

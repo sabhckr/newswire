@@ -10,6 +10,7 @@ from sqlalchemy.types import Uuid
 from app.core.db import Base, JSONType, Timestamps, UTCDateTime, UUIDPk, utcnow
 from app.models.images import ImageAsset
 from app.models.sources import Category
+from app.models.videos import VideoAsset
 
 
 class Tag(UUIDPk, Base):
@@ -51,6 +52,7 @@ class Article(UUIDPk, Timestamps, Base):
         Uuid, ForeignKey("image_assets.id", ondelete="SET NULL")
     )
     featured_image_caption: Mapped[str | None] = mapped_column(Text)
+    video_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("video_assets.id", ondelete="SET NULL"))
     geo_entity_ids: Mapped[list | None] = mapped_column(JSONType)
     # draft | in_review | approved | scheduled | published | unpublished | archived
     status: Mapped[str] = mapped_column(String(16), default="draft", index=True)
@@ -66,6 +68,7 @@ class Article(UUIDPk, Timestamps, Base):
 
     category: Mapped[Category | None] = relationship(lazy="joined")
     featured_image: Mapped[ImageAsset | None] = relationship(lazy="joined")
+    video: Mapped[VideoAsset | None] = relationship(lazy="joined")
     tags: Mapped[list[Tag]] = relationship(secondary=article_tags, lazy="selectin")
     sources: Mapped[list[ArticleSource]] = relationship(
         cascade="all, delete-orphan", lazy="selectin", order_by="ArticleSource.position"

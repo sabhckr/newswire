@@ -87,6 +87,11 @@ def make_engine(url: str) -> Engine:
         def _sqlite_pragmas(dbapi_conn, _):  # pragma: no cover - trivial
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
+            # While the collector writes a large batch, an editor's save waits for it instead of
+            # failing at once with "database is locked"; WAL lets reads go on during writes.
+            cur.execute("PRAGMA busy_timeout=30000")
+            if ":memory:" not in url:
+                cur.execute("PRAGMA journal_mode=WAL")
             cur.close()
 
     return engine
