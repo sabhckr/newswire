@@ -85,6 +85,9 @@
   .prose-article a { @apply text-accent underline underline-offset-2; }
   .prose-article hr { @apply my-6 border-border; }
   .prose-article code { @apply rounded bg-surface-2 px-1 font-mono text-[13px]; }
+  .prose-article [data-video-embed] { @apply relative my-4 overflow-hidden rounded bg-surface-2; padding-top: 56.25%; }
+  .prose-article [data-video-embed] iframe { @apply absolute inset-0 h-full w-full border-0; }
+  .prose-article [data-video-embed].ProseMirror-selectednode { @apply ring-2 ring-accent; }
   .prose-article .ProseMirror-focused { outline: none; }
   .prose-article p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);

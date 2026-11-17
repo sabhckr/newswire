@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -16,15 +16,25 @@ from app.core.db import get_db, utcnow
 from app.core.errors import AppError
 from app.core.pagination import PageParams
 from app.models import Article, ArticlePublication, AuditLog, PublishingDestination, Tag, User
-from app.publishing.service import auto_publish_if_enabled, process_job, request_publication
+from app.api.publishing import publication_out
+from app.api.videos import video_out
+from app.publishing.service import (
+    SOCIAL_KINDS,
+    auto_publish_if_enabled,
+    process_in_background,
+    process_job,
+    request_many,
+    request_publication,
+)
+from app.publishing.social import is_slow
 from app.schemas.common import AuditOut
 from app.schemas.domain import (
     ArticleIn,
     ArticleListOut,
     ArticleOut,
     JobOut,
-    PublicationOut,
     PublishIn,
+    PublishManyIn,
     TagOut,
     TransitionIn,
     UnpublishIn,
@@ -60,6 +70,7 @@ def article_out(db: Session, a: Article, current: CurrentUser) -> ArticleOut:
         seo_description=a.seo_description, category_id=a.category_id, featured_image_id=a.featured_image_id,
         featured_image=image_out(a.featured_image) if a.featured_image else None,
         featured_image_caption=a.featured_image_caption, geo_entity_ids=a.geo_entity_ids, approved_at=a.approved_at,
+        video_id=a.video_id, video=video_out(a.video) if a.video else None,
         tags=[TagOut.model_validate(t) for t in a.tags],
         sources=[s for s in a.sources],
         images=[{"id": i.id, "image_asset_id": i.image_asset_id, "caption": i.caption, "position": i.position,
@@ -69,10 +80,7 @@ def article_out(db: Session, a: Article, current: CurrentUser) -> ArticleOut:
     data.transitions = available_transitions(a.status, current.permissions)
     data.checks = publication_checks(a, commercial=True, block_on_markers=policy.get("block_on_template_markers", True))
     pubs = list(db.scalars(select(ArticlePublication).where(ArticlePublication.article_id == a.id)))
-    data.publications = [
-        PublicationOut.model_validate(p).model_copy(update={"destination_name": p.destination.name, "destination_kind": p.destination.kind})
-        for p in pubs
-    ]
+    data.publications = [publication_out(p) for p in pubs]
     data.has_unpublished_changes = a.status == "published" and (a.last_published_version or 0) < a.version
     return data
 
@@ -190,20 +198,66 @@ def checks(article_id: uuid.UUID, destination_id: uuid.UUID | None = None, db: S
                               block_on_markers=policy.get("block_on_template_markers", True))
 
 
+def _run_jobs(db: Session, article: Article, results, background: BackgroundTasks) -> list[str]:
+    """Run quick jobs now (websites first, then Facebook posts); video uploads go to the background.
+    Returns the names of destinations still in progress."""
+    later: list = []
+    in_progress: list[str] = []
+    for dest, job, created in results:
+        if not created or job.status != "pending" or job.scheduled_for is not None:
+            continue
+        if is_slow(dest, job.options, has_video=article.video_id is not None):
+            later.append(job.id)
+            in_progress.append(dest.name)
+            continue
+        process_job(db, job)
+        db.commit()
+        if job.status == "pending" and dest.kind in SOCIAL_KINDS and job.attempts == 0:
+            in_progress.append(dest.name)  # waiting for the website so it can link to the article
+    if later:
+        background.add_task(process_in_background, later)
+    return in_progress
+
+
+def _job_out(db: Session, job, article: Article, dest: PublishingDestination) -> JobOut:
+    db.refresh(job)
+    return JobOut.model_validate(job).model_copy(update={"article_headline": article.headline,
+                                                         "destination_name": dest.name, "destination_kind": dest.kind})
+
+
 @router.post("/{article_id}/publish")
-def publish(article_id: uuid.UUID, body: PublishIn, db: Session = Depends(get_db),
+def publish(article_id: uuid.UUID, body: PublishIn, background: BackgroundTasks, db: Session = Depends(get_db),
             current: CurrentUser = Depends(require(P.ARTICLES_PUBLISH))):
-    """Queue a publication. Immediate and draft requests are processed right away."""
+    """Queue a publication. Immediate and draft requests are processed right away (video uploads in the background)."""
     a = get_or_404(db, Article, article_id, "Article")
     dest = get_or_404(db, PublishingDestination, body.destination_id, "Destination")
     job, created = request_publication(db, a, dest, "publish", actor=current, mode=body.mode, scheduled_for=body.scheduled_for)
     db.commit()
-    if created and body.mode != "scheduled":
-        process_job(db, job)
-        db.commit()
-    db.refresh(job)
-    out = JobOut.model_validate(job).model_copy(update={"article_headline": a.headline, "destination_name": dest.name})
-    return {"job": out, "duplicate_request": not created, "article": article_out(db, a, current)}
+    _run_jobs(db, a, [(dest, job, created)], background)
+    return {"job": _job_out(db, job, a, dest), "duplicate_request": not created, "article": article_out(db, a, current)}
+
+
+@router.post("/{article_id}/publish-many")
+def publish_many(article_id: uuid.UUID, body: PublishManyIn, background: BackgroundTasks, db: Session = Depends(get_db),
+                 current: CurrentUser = Depends(require(P.ARTICLES_PUBLISH))):
+    """Publish to several destinations at once (websites, Facebook, YouTube), now, as drafts, or at a set time.
+
+    Every destination is checked first; if one cannot take the article, nothing is queued.
+    """
+    a = get_or_404(db, Article, article_id, "Article")
+    targets = []
+    for t in body.targets:
+        dest = get_or_404(db, PublishingDestination, t.destination_id, "Destination")
+        targets.append((dest, t.options.model_dump(exclude_none=True)))
+    results = request_many(db, a, targets, actor=current, mode=body.mode, scheduled_for=body.scheduled_for)
+    db.commit()
+    in_progress = _run_jobs(db, a, results, background) if body.mode != "scheduled" else []
+    return {
+        "jobs": [_job_out(db, job, a, dest) for dest, job, _ in results],
+        "duplicate_request": not any(created for _, _, created in results),
+        "in_progress": in_progress,
+        "article": article_out(db, a, current),
+    }
 
 
 @router.post("/{article_id}/unpublish")

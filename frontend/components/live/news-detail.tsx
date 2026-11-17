@@ -2,8 +2,9 @@
 
 import * as D from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, CheckCircle2, CircleDot, Copy, ExternalLink, Layers, MapPin, Rss, Target, X } from "lucide-react";
+import { Archive, CheckCircle2, CircleDot, Copy, ExternalLink, FilePlus2, FileText, Layers, MapPin, RefreshCw, Rss, Target, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -29,6 +30,21 @@ export interface NewsDetail extends NewsItemOut {
   duplicates: NewsItemOut[];
   cluster: { id: string; title: string; item_count: number } | null;
   matches: { id: string; assignment_id: string; headline: string; score: number; explanation: string; review_status: string }[];
+}
+
+/** The story's own text, read from its page on request (POST /news/{id}/full-text). */
+export interface FullText {
+  url: string;
+  title: string | null;
+  paragraphs: string[];
+  author: string | null;
+  published_at: string | null;
+  lead_image: string | null;
+  images: { url: string; caption: string }[];
+  videos: string[];
+  method: string;
+  char_count: number;
+  fetched_at: string;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -137,6 +153,98 @@ function ReviewButtons({ item }: { item: NewsDetail }) {
   );
 }
 
+function FullArticle({ item }: { item: NewsDetail }) {
+  const qc = useQueryClient();
+  const router = useRouter();
+  const { can } = useSession();
+  const cached = (item.extra?.full_text as FullText | undefined) ?? null;
+  const load = useMutation({
+    mutationFn: (refresh: boolean) => api<FullText>(`/news/${item.id}/full-text${refresh ? "?refresh=true" : ""}`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["news-item", item.id] }),
+  });
+  const draft = useMutation({
+    mutationFn: () => api<{ id: string; notice?: string }>(`/news/${item.id}/article`, { method: "POST" }),
+    onSuccess: (art) => {
+      if (art.notice) toast.warning(art.notice);
+      else toast.success("Draft article created — edit it before publishing");
+      qc.invalidateQueries({ queryKey: ["articles"] });
+      router.push(`/articles/${art.id}`);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const full = load.data ?? cached;
+  const copy = async () => {
+    if (!full) return;
+    const text = [full.title ?? item.title, ...full.paragraphs, `Source: ${item.url}`].join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Full text copied");
+    } catch {
+      toast.error("The browser did not allow copying; select the text instead");
+    }
+  };
+
+  return (
+    <Section title="Full article" icon={FileText}>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        {!full ? (
+          <Button size="sm" variant="primary" loading={load.isPending} onClick={() => load.mutate(false)}>
+            <FileText className="h-3.5 w-3.5" /> Load full article
+          </Button>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" onClick={copy}>
+              <Copy className="h-3.5 w-3.5" /> Copy text
+            </Button>
+            <Tip content="Read the page again">
+              <Button size="icon-sm" variant="ghost" aria-label="Reload full article" loading={load.isPending} onClick={() => load.mutate(true)}>
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            </Tip>
+          </>
+        )}
+        {can(PERMS.articlesWrite) ? (
+          <Button size="sm" variant={full ? "primary" : "outline"} loading={draft.isPending} onClick={() => draft.mutate()}>
+            <FilePlus2 className="h-3.5 w-3.5" /> Start article from this
+          </Button>
+        ) : null}
+      </div>
+      {load.isError ? <p className="mb-2 rounded border border-warning/40 bg-warning/10 p-2 text-xs">{errorMessage(load.error)}</p> : null}
+      {full ? (
+        <div lang={item.language ?? undefined}>
+          {full.lead_image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={full.lead_image} alt="" referrerPolicy="no-referrer" loading="lazy" className="mb-3 max-h-64 w-full rounded object-cover" />
+          ) : null}
+          <div className="space-y-3 text-sm leading-7">
+            {full.paragraphs.map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </div>
+          {full.videos.length ? (
+            <ul className="mt-3 space-y-1 text-xs">
+              {full.videos.map((v) => (
+                <li key={v}>
+                  <a href={v} target="_blank" rel="noopener noreferrer nofollow" className="text-accent hover:underline">
+                    Video in the story: {hostOf(v)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="mt-3 text-2xs text-muted">
+            Read from {hostOf(full.url)} {full.fetched_at ? <>on {formatDateTime(full.fetched_at)}</> : null}
+            {full.author ? <> · {full.author}</> : null}. The text belongs to the publisher: rewrite it and credit the source
+            before you publish it.
+          </p>
+        </div>
+      ) : !load.isPending && !load.isError ? (
+        <p className="text-xs text-muted">Reads the story from the publisher’s page (robots.txt respected; paywalls and logins are never bypassed).</p>
+      ) : null}
+    </Section>
+  );
+}
+
 export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (id: string) => void }) {
   const { can } = useSession();
   const q = useQuery({ queryKey: ["news-item", id], queryFn: () => api<NewsDetail>(`/news/${id}`) });
@@ -199,6 +307,8 @@ export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (i
           </div>
         ) : null}
       </div>
+
+      <FullArticle item={item} />
 
       <Section title="Geography" icon={MapPin} count={geos.length}>
         {geos.length ? (

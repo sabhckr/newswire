@@ -482,12 +482,42 @@ class ArticleIn(BaseModel):
     category_id: uuid.UUID | None = None
     featured_image_id: uuid.UUID | None = None
     featured_image_caption: str | None = None
+    video_id: uuid.UUID | None = None
     geo_entity_ids: list[uuid.UUID] | None = None
     tags: list[str] | None = None
     sources: list[ArticleSourceIn] | None = None
     images: list[ArticleImageIn] | None = None
     assignment_ids: list[uuid.UUID] | None = None
     version: int | None = None
+
+
+class VideoUploadStartIn(BaseModel):
+    filename: str | None = Field(None, max_length=255)
+    title: str | None = Field(None, max_length=500)
+    size: int = Field(gt=0, description="The file size in bytes")
+
+
+class VideoUploadOut(BaseModel):
+    upload_id: str
+    size: int
+    received: int
+    chunk_size: int
+
+
+class VideoOut(ORM):
+    id: uuid.UUID
+    title: str | None
+    original_filename: str | None
+    mime: str
+    file_size: int
+    width: int | None
+    height: int | None
+    duration_seconds: float | None
+    created_at: datetime
+    url: str = ""
+    # Why it cannot be a Facebook Reel (empty when it can); vertical videos up to 3 minutes are YouTube Shorts.
+    reel_problems: list[str] = []
+    is_short: bool = False
 
 
 class ArticleSourceOut(ORM):
@@ -525,6 +555,7 @@ class PublicationOut(ORM):
     published_version: int | None
     last_synced_at: datetime | None
     sync_error: str | None
+    warning: str | None = None
 
 
 class ArticleListOut(ORM):
@@ -556,6 +587,8 @@ class ArticleOut(ArticleListOut):
     featured_image_id: uuid.UUID | None
     featured_image: ImageOut | None
     featured_image_caption: str | None
+    video_id: uuid.UUID | None = None
+    video: VideoOut | None = None
     geo_entity_ids: list | None
     approved_at: datetime | None
     tags: list[TagOut]
@@ -583,15 +616,38 @@ class UnpublishIn(BaseModel):
     destination_id: uuid.UUID
 
 
+class PublishOptionsIn(BaseModel):
+    format: Literal["post", "reel"] | None = Field(default=None, description="Facebook only")
+    privacy: Literal["public", "unlisted", "private"] | None = Field(default=None, description="YouTube only")
+    message: str | None = Field(default=None, max_length=5000,
+                                description="Facebook post text or YouTube description; defaults to headline and excerpt")
+
+
+class PublishTargetIn(BaseModel):
+    destination_id: uuid.UUID
+    options: PublishOptionsIn = Field(default_factory=PublishOptionsIn)
+
+
+class PublishManyIn(BaseModel):
+    targets: list[PublishTargetIn] = Field(min_length=1, max_length=20)
+    mode: Literal["immediate", "draft", "scheduled"] = "immediate"
+    scheduled_for: datetime | None = None
+
+
 # --- publishing ----------------------------------------------------------------------------
 
 
 class DestinationIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    kind: Literal["wordpress", "webhook"]
-    base_url: str = Field(min_length=8, max_length=2048)
+    kind: Literal["wordpress", "webhook", "facebook", "youtube"]
+    base_url: str | None = Field(default=None, max_length=2048, description="Website and webhook destinations")
     username: str | None = Field(default=None, max_length=200)
-    secret: str | None = Field(default=None, max_length=500, description="Write-only")
+    secret: str | None = Field(default=None, max_length=500,
+                               description="Write-only: WordPress application password, webhook secret, "
+                                           "Facebook App secret or Google Client secret")
+    client_id: str | None = Field(default=None, max_length=200, description="Facebook App ID or Google Client ID")
+    login_config_id: str | None = Field(default=None, max_length=100,
+                                        description="Optional Facebook Login for Business configuration ID")
     is_active: bool = True
     is_commercial: bool = True
     auto_publish: bool = False
@@ -602,9 +658,30 @@ class DestinationUpdateIn(BaseModel):
     base_url: str | None = Field(default=None, min_length=8, max_length=2048)
     username: str | None = None
     secret: str | None = Field(default=None, max_length=500)
+    client_id: str | None = Field(default=None, max_length=200)
+    login_config_id: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
     is_commercial: bool | None = None
     auto_publish: bool | None = None
+
+
+class SocialPageOut(BaseModel):
+    id: str
+    name: str
+
+
+class ConnectionOut(BaseModel):
+    """Facebook/YouTube connection state. Tokens and secrets are never returned."""
+
+    connected: bool
+    account_name: str | None = None
+    account_url: str | None = None
+    client_id: str | None = None
+    login_config_id: str | None = None
+    redirect_uri: str
+    connected_at: str | None = None
+    # Facebook: the Pages to choose from after signing in with access to more than one.
+    pages: list[SocialPageOut] = []
 
 
 class DestinationOut(ORM):
@@ -620,6 +697,11 @@ class DestinationOut(ORM):
     last_checked_at: datetime | None
     last_check_status: str | None
     created_at: datetime
+    connection: ConnectionOut | None = None
+
+
+class FacebookPageIn(BaseModel):
+    page_id: str = Field(min_length=1, max_length=64)
 
 
 class JobOut(ORM):
@@ -628,6 +710,8 @@ class JobOut(ORM):
     article_headline: str | None = None
     destination_id: uuid.UUID
     destination_name: str | None = None
+    destination_kind: str | None = None
+    options: dict | None = None
     action: str
     status: str
     article_version: int

@@ -16,6 +16,7 @@ from app.models.publishing import ArticlePublication, PublishingDestination, Pub
 from app.models.sources import Category, Source, SourceFetchLog, source_categories
 from app.models.system import AuditLog, Backup, ScheduledJob, SystemSetting
 from app.models.users import Notification, Role, SearchHistory, User, UserSession, user_roles
+from app.models.videos import VideoAsset
 
 __all__ = [
     "Article", "ArticleImage", "ArticleSource", "Tag", "article_assignments", "article_tags",
@@ -24,5 +25,5 @@ __all__ = [
     "ImageAsset", "ImageLicense", "NewsItem", "NewsItemSource", "ArticlePublication",
     "PublishingDestination", "PublishingJob", "Category", "Source", "SourceFetchLog",
     "source_categories", "AuditLog", "Backup", "ScheduledJob", "SystemSetting", "Notification",
-    "Role", "SearchHistory", "User", "UserSession", "user_roles",
+    "Role", "SearchHistory", "User", "UserSession", "user_roles", "VideoAsset",
 ]

@@ -13,6 +13,7 @@ export type Draft = {
   tags: string[];
   featured_image_id: string | null;
   featured_image_caption: string;
+  video_id: string | null;
   sources: SourceDraft[];
 };
 
@@ -28,6 +29,7 @@ export function toDraft(a: ArticleOut): Draft {
     tags: a.tags.map((t) => t.name),
     featured_image_id: a.featured_image_id,
     featured_image_caption: a.featured_image_caption ?? "",
+    video_id: a.video_id ?? null,
     sources: a.sources.map((s) => ({
       news_item_id: s.news_item_id,
       url: s.url,
@@ -57,6 +59,7 @@ export function diffDraft(draft: Draft, base: Draft): ArticleIn {
   if (draft.slug.trim() && draft.slug.trim() !== base.slug) out.slug = draft.slug.trim();
   if ((draft.category_id || null) !== (base.category_id || null)) out.category_id = draft.category_id || null;
   if (draft.featured_image_id !== base.featured_image_id) out.featured_image_id = draft.featured_image_id;
+  if (draft.video_id !== base.video_id) out.video_id = draft.video_id;
   if (tagKey(draft.tags) !== tagKey(base.tags)) out.tags = draft.tags.map((t) => t.trim()).filter(Boolean);
   if (draft.sources.map(sourceKey).join("\n") !== base.sources.map(sourceKey).join("\n")) {
     out.sources = draft.sources.map(
@@ -77,4 +80,4 @@ export function sameDraft(a: Draft, b: Draft): boolean {
 }
 
 /** Fields whose edits send an approved article back to review (backend CONTENT_FIELDS). */
-export const REVIEW_FIELDS = new Set(["headline", "subtitle", "body_html", "featured_image_id", "featured_image_caption"]);
+export const REVIEW_FIELDS = new Set(["headline", "subtitle", "body_html", "featured_image_id", "featured_image_caption", "video_id"]);

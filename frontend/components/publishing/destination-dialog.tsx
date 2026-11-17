@@ -1,7 +1,7 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Wand2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Copy, KeyRound, Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,13 +13,17 @@ import { Switch } from "@/components/ui/switch";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import type { DestinationIn, DestinationOut, DestinationUpdateIn } from "@/lib/types";
 
-type Kind = "wordpress" | "webhook";
+import { FacebookIcon, YouTubeIcon, isSocial } from "./kinds";
+
+type Kind = "wordpress" | "webhook" | "facebook" | "youtube";
 type Form = {
   kind: Kind;
   name: string;
   base_url: string;
   username: string;
   secret: string;
+  client_id: string;
+  login_config_id: string;
   is_active: boolean;
   is_commercial: boolean;
   auto_publish: boolean;
@@ -27,15 +31,96 @@ type Form = {
 
 function initial(d: DestinationOut | null): Form {
   return {
-    kind: (d?.kind === "webhook" ? "webhook" : "wordpress") as Kind,
+    kind: (["webhook", "facebook", "youtube"].includes(d?.kind ?? "") ? d?.kind : "wordpress") as Kind,
     name: d?.name ?? "",
     base_url: d?.base_url ?? "",
     username: d?.username ?? "",
     secret: "",
+    client_id: d?.connection?.client_id ?? "",
+    login_config_id: d?.connection?.login_config_id ?? "",
     is_active: d?.is_active ?? true,
     is_commercial: d?.is_commercial ?? true,
     auto_publish: d?.auto_publish ?? false,
   };
+}
+
+/** Start the Facebook / Google sign-in for a saved destination: the browser leaves for their page. */
+export async function startConnect(d: DestinationOut) {
+  const r = await api<{ authorize_url: string }>(`/publishing/destinations/${d.id}/connect`, { method: "POST" });
+  window.location.assign(r.authorize_url);
+}
+
+function CopyField({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex gap-2">
+      <Input readOnly value={value} aria-label={label} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+      <Button
+        type="button"
+        variant="outline"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          } catch {
+            toast.error("Copy failed; select the address and copy it by hand.");
+          }
+        }}
+      >
+        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? "Copied" : "Copy"}
+      </Button>
+    </div>
+  );
+}
+
+function SetupSteps({ kind, redirectUri }: { kind: "facebook" | "youtube"; redirectUri: string }) {
+  return (
+    <details className="rounded-lg border border-border p-3 text-xs text-muted" open>
+      <summary className="cursor-pointer text-sm font-medium text-text">How to get these (one time, about 10 minutes)</summary>
+      {kind === "facebook" ? (
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+          <li>
+            Open{" "}
+            <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer" className="text-accent underline">
+              developers.facebook.com/apps
+            </a>{" "}
+            and create an app. Choose the use case for managing your Page (posts and Reels).
+          </li>
+          <li>Under App settings → Basic, copy the <b>App ID</b> and <b>App secret</b> into the fields above.</li>
+          <li>
+            Under Facebook Login → Settings, add this address to <b>Valid OAuth Redirect URIs</b>:
+            <div className="mt-1">
+              <CopyField value={redirectUri} label="Redirect address for Facebook" />
+            </div>
+          </li>
+          <li>Save here, then click <b>Connect</b>, sign in with an account that manages the Page, and allow every permission.</li>
+        </ol>
+      ) : (
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5">
+          <li>
+            In{" "}
+            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer" className="text-accent underline">
+              Google Cloud Console
+            </a>
+            , create a project and enable <b>YouTube Data API v3</b>.
+          </li>
+          <li>
+            Set up the OAuth consent screen (External). Then <b>publish the app</b>: while it is in Testing, Google ends the connection after 7
+            days.
+          </li>
+          <li>
+            Credentials → Create credentials → OAuth client ID → <b>Web application</b>. Add this <b>Authorized redirect URI</b>:
+            <div className="mt-1">
+              <CopyField value={redirectUri} label="Redirect address for Google" />
+            </div>
+          </li>
+          <li>Copy the <b>Client ID</b> and <b>Client secret</b> above, save, then click <b>Connect</b> and pick the channel.</li>
+          <li>Until Google audits the project, YouTube may keep uploaded videos private. NEWSWIRE tells you when that happens.</li>
+        </ol>
+      )}
+    </details>
+  );
 }
 
 function randomSecret(): string {
@@ -67,10 +152,31 @@ export function DestinationDialog({
   const editing = !!destination;
   const builtin = destination?.kind === "builtin";
   const kind: string = destination?.kind ?? f.kind;
+  const social = isSocial(kind);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+  const info = useQuery({
+    queryKey: ["oauth-info"],
+    queryFn: () => api<{ redirect_uri: string }>("/publishing/oauth/info"),
+    enabled: open,
+    staleTime: Infinity,
+  });
+  const redirectUri = destination?.connection?.redirect_uri ?? info.data?.redirect_uri ?? "";
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!destination && social) {
+        const body: DestinationIn = {
+          name: f.name.trim(),
+          kind: f.kind,
+          client_id: f.client_id.trim(),
+          secret: f.secret.trim(),
+          login_config_id: f.login_config_id.trim() || null,
+          is_active: f.is_active,
+          is_commercial: f.is_commercial,
+          auto_publish: f.auto_publish,
+        };
+        return api<DestinationOut>("/publishing/destinations", { body });
+      }
       if (!destination) {
         const body: DestinationIn = {
           name: f.name.trim(),
@@ -89,17 +195,30 @@ export function DestinationDialog({
       if (f.is_active !== destination.is_active) body.is_active = f.is_active;
       if (f.is_commercial !== destination.is_commercial) body.is_commercial = f.is_commercial;
       if (f.auto_publish !== destination.auto_publish) body.auto_publish = f.auto_publish;
-      if (!builtin) {
+      if (social) {
+        if (f.client_id.trim() && f.client_id.trim() !== (destination.connection?.client_id ?? "")) body.client_id = f.client_id.trim();
+        if (f.login_config_id.trim() !== (destination.connection?.login_config_id ?? "")) body.login_config_id = f.login_config_id.trim();
+        if (f.secret.trim()) body.secret = f.secret.trim();
+      } else if (!builtin) {
         if (f.base_url.trim() !== (destination.base_url ?? "")) body.base_url = f.base_url.trim();
         if (kind === "wordpress" && f.username.trim() !== (destination.username ?? "")) body.username = f.username.trim() || null;
         if (f.secret.trim()) body.secret = f.secret.trim();
       }
       return api<DestinationOut>(`/publishing/destinations/${destination.id}`, { method: "PUT", body });
     },
-    onSuccess: (d) => {
-      toast.success(editing ? `Saved ${d.name}` : `Added ${d.name}. Test the connection before publishing.`);
+    onSuccess: async (d) => {
       qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
       onOpenChange(false);
+      if (isSocial(d.kind) && !d.connection?.connected) {
+        toast.info(`Saved ${d.name}. Opening ${d.kind === "facebook" ? "Facebook" : "Google"} to connect…`);
+        try {
+          await startConnect(d);
+        } catch (e) {
+          toast.error(errorMessage(e));
+        }
+        return;
+      }
+      toast.success(editing ? `Saved ${d.name}` : `Added ${d.name}. Test the connection before publishing.`);
     },
     onError: (e) => {
       if (e instanceof ApiError && e.code === "unsafe_url") setErrors({ base_url: e.message });
@@ -110,7 +229,10 @@ export function DestinationDialog({
   const submit = () => {
     const errs: Partial<Record<keyof Form, string>> = {};
     if (!f.name.trim()) errs.name = "Give the destination a name";
-    if (!builtin) {
+    if (social) {
+      if (!f.client_id.trim()) errs.client_id = kind === "facebook" ? "Paste the App ID" : "Paste the Client ID";
+      if (!editing && !f.secret.trim()) errs.secret = kind === "facebook" ? "Paste the App secret" : "Paste the Client secret";
+    } else if (!builtin) {
       let ok = false;
       try {
         const u = new URL(f.base_url.trim());
@@ -126,7 +248,7 @@ export function DestinationDialog({
     if (!Object.keys(errs).length) save.mutate();
   };
 
-  const secretLabel = kind === "wordpress" ? "Application password" : "Signing secret";
+  const secretLabel = kind === "wordpress" ? "Application password" : kind === "facebook" ? "App secret" : kind === "youtube" ? "Client secret" : "Signing secret";
   const secretHint = editing && destination?.has_secret
     ? "A credential is stored and never shown again. Leave blank to keep it, or enter a new one to replace it."
     : kind === "wordpress"
@@ -144,7 +266,7 @@ export function DestinationDialog({
               Cancel
             </Button>
             <Button variant="primary" loading={save.isPending} onClick={submit}>
-              {editing ? "Save" : "Add destination"}
+              {editing ? "Save" : social ? "Save and connect" : "Add destination"}
             </Button>
           </>
         }
@@ -161,14 +283,19 @@ export function DestinationDialog({
               <legend className="mb-1 text-xs font-medium">Type</legend>
               {(
                 [
-                  ["wordpress", "WordPress site", "Creates posts through the WordPress REST API with an application password."],
-                  ["webhook", "Webhook (custom website)", "POSTs signed JSON for each publish, update and unpublish."],
+                  ["wordpress", "WordPress site", "Your site's username and an application password. Creates posts with images and video."],
+                  ["webhook", "Other website (webhook)", "POSTs signed JSON for each publish, update and unpublish."],
+                  ["facebook", "Facebook Page", "Posts and Reels on a Page you manage. Connect once with your Facebook account."],
+                  ["youtube", "YouTube channel", "Uploads the article's video. Connect once with your Google account."],
                 ] as const
               ).map(([k, label, help]) => (
                 <label key={k} className="flex cursor-pointer items-start gap-2 rounded border border-border p-2 text-sm has-[:checked]:border-accent">
                   <input type="radio" name="dest-kind" value={k} checked={f.kind === k} onChange={() => set("kind", k)} className="mt-1 accent-[rgb(var(--accent))]" />
                   <span>
-                    <span className="font-medium">{label}</span>
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      {k === "facebook" ? <FacebookIcon className="h-3.5 w-3.5" /> : k === "youtube" ? <YouTubeIcon className="h-3.5 w-3.5" /> : null}
+                      {label}
+                    </span>
                     <span className="block text-xs text-muted">{help}</span>
                   </span>
                 </label>
@@ -177,10 +304,65 @@ export function DestinationDialog({
           ) : null}
 
           <Field label="Name" htmlFor="dest-name" required error={errors.name}>
-            <Input id="dest-name" value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Main WordPress site" aria-invalid={!!errors.name} />
+            <Input
+              id="dest-name"
+              value={f.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder={kind === "facebook" ? "e.g. Our Facebook Page" : kind === "youtube" ? "e.g. Our YouTube channel" : "e.g. Main WordPress site"}
+              aria-invalid={!!errors.name}
+            />
           </Field>
 
-          {!builtin ? (
+          {social ? (
+            <>
+              {editing && destination?.connection?.connected ? (
+                <InlineAlert tone="success" title={`Connected: ${destination.connection.account_name ?? ""}`}>
+                  Changing the {kind === "facebook" ? "App ID" : "Client ID"} disconnects it; you then connect again.
+                </InlineAlert>
+              ) : null}
+              <Field label={kind === "facebook" ? "App ID" : "Client ID"} htmlFor="dest-client" required error={errors.client_id}>
+                <Input
+                  id="dest-client"
+                  value={f.client_id}
+                  onChange={(e) => set("client_id", e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                  aria-invalid={!!errors.client_id}
+                />
+              </Field>
+              <Field
+                label={secretLabel}
+                htmlFor="dest-secret"
+                required={!editing}
+                error={errors.secret}
+                hint={editing && destination?.has_secret ? "Stored encrypted and never shown again. Leave blank to keep it." : "Stored encrypted on the server."}
+              >
+                <Input
+                  id="dest-secret"
+                  type="password"
+                  value={f.secret}
+                  onChange={(e) => set("secret", e.target.value)}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                  placeholder={editing && destination?.has_secret ? "•••••••• (unchanged)" : ""}
+                  aria-invalid={!!errors.secret}
+                />
+              </Field>
+              {kind === "facebook" ? (
+                <details className="text-xs text-muted">
+                  <summary className="cursor-pointer">Advanced: Facebook Login for Business</summary>
+                  <Field label="Configuration ID (optional)" htmlFor="dest-config" hint="Only if your app uses Facebook Login for Business; otherwise leave empty.">
+                    <Input id="dest-config" value={f.login_config_id} onChange={(e) => set("login_config_id", e.target.value)} className="font-mono text-xs" />
+                  </Field>
+                </details>
+              ) : null}
+              {redirectUri ? <SetupSteps kind={kind as "facebook" | "youtube"} redirectUri={redirectUri} /> : null}
+            </>
+          ) : null}
+
+          {!builtin && !social ? (
             <>
               <Field
                 label={kind === "wordpress" ? "Site address" : "Endpoint URL"}

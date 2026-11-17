@@ -17,6 +17,7 @@ import {
   Quote,
   Redo2,
   Undo2,
+  Video,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -25,6 +26,9 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tip } from "@/components/ui/tooltip";
 import { cn, formatNumber } from "@/lib/utils";
+import { toEmbedUrl } from "@/lib/video";
+
+import { VideoEmbed } from "./video-embed";
 
 function countWords(text: string): number {
   const m = text.trim().match(/[\p{L}\p{N}_]+/gu);
@@ -135,6 +139,83 @@ function LinkControl({ editor, disabled }: { editor: Editor; disabled?: boolean 
   );
 }
 
+function VideoControl({ editor, disabled }: { editor: Editor; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [link, setLink] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setLink("");
+      setError(null);
+    }
+  }, [open]);
+
+  const apply = () => {
+    const src = toEmbedUrl(link);
+    if (!src) {
+      setError("Paste a YouTube, Facebook, Vimeo or Dailymotion video link.");
+      return;
+    }
+    editor.chain().focus().setVideoEmbed({ src }).run();
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tip content="Embed video">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label="Embed video"
+            onMouseDown={(e) => e.preventDefault()}
+            className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
+          >
+            <Video className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+      </Tip>
+      <PopoverContent align="start" className="w-80 p-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            apply();
+          }}
+          className="flex flex-col gap-2"
+        >
+          <label htmlFor="nw-video-url" className="text-xs font-medium">
+            Video link
+          </label>
+          <Input
+            id="nw-video-url"
+            value={link}
+            onChange={(e) => {
+              setLink(e.target.value);
+              setError(null);
+            }}
+            autoFocus
+            placeholder="https://www.youtube.com/watch?v=…"
+            aria-invalid={!!error}
+            aria-describedby="nw-video-help"
+          />
+          <p id="nw-video-help" className={cn("text-2xs", error ? "text-danger" : "text-muted")}>
+            {error ?? "YouTube, Facebook, Vimeo and Dailymotion videos are embedded as a player in the published article."}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" type="submit">
+              Embed
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * Article body editor. The parent reads HTML through `onReady(editor)` when saving, so typing does
  * not re-render the whole page; `onEdit` fires on every user change (used for the dirty flag).
@@ -161,6 +242,7 @@ export function RichEditor({
         HTMLAttributes: { rel: "noopener noreferrer nofollow", target: null },
       }),
       Placeholder.configure({ placeholder: "Write the story in your own words…" }),
+      VideoEmbed,
     ],
     content: initialHtml,
     editable: !readOnly,
@@ -228,6 +310,7 @@ export function RichEditor({
             </ToolButton>
             <span className="mx-1 h-5 w-px bg-border" aria-hidden />
             <LinkControl editor={editor} disabled={disabled} />
+            <VideoControl editor={editor} disabled={disabled} />
             <span className="mx-1 h-5 w-px bg-border" aria-hidden />
             <ToolButton label="Undo" shortcut="⌘Z" disabled={disabled || !editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
               <Undo2 className="h-4 w-4" />

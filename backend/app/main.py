@@ -30,8 +30,10 @@ from app.api import (
     sources,
     system,
     users,
+    videos,
 )
 from app.api.deps_limits import api_limiter
+from app.articles.video import FRAME_SOURCES
 from app.core.config import VERSION, get_settings
 from app.core.db import SessionLocal, get_engine
 from app.core.errors import install_error_handlers
@@ -42,10 +44,11 @@ log = logging.getLogger("newswire.api")
 API_PREFIX = "/api/v1"
 
 ROUTERS = [auth, users, sources, news, geography, assignments, research, clusters, images, articles, publishing,
-           public, analytics, system, settings_api, activity, search]
+           public, analytics, system, settings_api, activity, search, videos]
 
 API_CSP = "default-src 'none'; frame-ancestors 'none'"
-PREVIEW_CSP = "default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
+PREVIEW_CSP = ("default-src 'none'; img-src 'self' https: data:; media-src 'self' https:; style-src 'unsafe-inline'; "
+               f"frame-ancestors 'self'; frame-src {FRAME_SOURCES}")
 
 
 def _startup() -> None:

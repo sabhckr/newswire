@@ -14,6 +14,12 @@ const nextConfig = {
   distDir: process.env.NEWSWIRE_NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    // API requests are proxied to FastAPI (see rewrites). Next's default 30 s would cut off slow
+    // requests such as publishing to a slow WordPress site; match nginx's 300 s instead.
+    // Videos are uploaded in 8 MB pieces, which stays under Next's 10 MB proxied-body limit.
+    proxyTimeout: 300_000,
+  },
   // The browser only ever talks to this origin; API and media requests are proxied to FastAPI.
   async rewrites() {
     return [
