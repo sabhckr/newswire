@@ -10,6 +10,8 @@ const securityHeaders = [
 
 const nextConfig = {
   output: "standalone",
+  // The browser test suite builds into its own directory so it never disturbs a running dev server.
+  distDir: process.env.NEWSWIRE_NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   reactStrictMode: true,
   // The browser only ever talks to this origin; API and media requests are proxied to FastAPI.

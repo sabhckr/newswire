@@ -1,0 +1,30 @@
+{
+  "title": "Harbour Gazette test feed",
+  "description": "Fictional stories served on 127.0.0.1 for the NEWSWIRE browser tests.",
+  "stories": [
+    {
+      "slug": "lighthouse-keepers-strike",
+      "hoursAgo": 2,
+      "title": "Lighthouse keepers strike over night-shift pay in Port Ellery",
+      "summary": "Lighthouse keepers at three stations stopped work on Tuesday, saying their night-shift allowance has not risen in nine years."
+    },
+    {
+      "slug": "lightkeepers-second-walkout",
+      "hoursAgo": 5,
+      "title": "Lightkeepers union announces a second walkout",
+      "summary": "The union representing lightkeepers said talks with the harbour authority had stalled and a second day of action would follow."
+    },
+    {
+      "slug": "cycle-lanes-approved",
+      "hoursAgo": 3,
+      "title": "Council approves new cycle lanes for the old town",
+      "summary": "Councillors voted to add protected cycle lanes on four streets around the market square."
+    },
+    {
+      "slug": "harbour-museum-reopens",
+      "hoursAgo": 8,
+      "title": "Harbour museum reopens after two-year renovation",
+      "summary": "The maritime museum on the quay reopened with a new gallery about the age of sail."
+    }
+  ]
+}

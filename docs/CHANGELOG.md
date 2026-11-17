@@ -3,6 +3,17 @@
 All notable changes to NEWSWIRE. Versions follow [semantic versioning](https://semver.org/).
 Releases with a migration that drops or rewrites data are marked **⚠ data migration**.
 
+## Unreleased
+
+### Testing
+- Playwright browser suite (`cd frontend && npm run test:e2e`): first-run setup, adding a source
+  from a local fixture feed, a headline with its live preview, verifying a match, starting,
+  editing (⌘S), approving, publishing and unpublishing an article, a 375 px overflow check of
+  every sidebar page and theme switching. It starts its own fixture feed, API (throwaway SQLite)
+  and production web build on 127.0.0.1. See the README.
+- `NEWSWIRE_NEXT_DIST_DIR` sets the Next.js build directory; the browser suite builds into
+  `.next-e2e` so a running dev server is not disturbed.
+
 ## 0.9.0 — 2026-11-17
 
 First complete build, covering milestones M0–M9 of the [architecture plan](ARCHITECTURE.md#9-milestones).

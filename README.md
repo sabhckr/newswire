@@ -99,6 +99,48 @@ After changing API schemas, regenerate the frontend types from the repository ro
 NEWSWIRE_SECRET_KEY=dev backend/.venv/bin/python scripts/gen_types.py
 ```
 
+### Browser tests
+
+A [Playwright](https://playwright.dev) suite in `frontend/e2e/` drives headless Chromium through
+the main flows: first-run `/setup`, adding a source in the Sources dialog, a headline with its
+live preview, verifying a match and starting an article in the Research workspace, editing and
+saving with ⌘S, approving, publishing to the built-in public API and unpublishing. It also checks
+that no sidebar page scrolls sideways at 375 px and that the theme toggle works.
+
+It needs the backend virtualenv and `npm ci` from above, plus a one-time browser download
+(about 90 MB, kept in Playwright's cache outside the repository):
+
+```bash
+cd frontend && npx playwright install --only-shell chromium
+```
+
+Run it from `frontend/`:
+
+```bash
+npm run test:e2e
+```
+
+The suite starts its own servers on 127.0.0.1 and stops them when it finishes, so a development
+server on ports 3000 and 8000 can keep running. PostgreSQL is not needed.
+
+| Port | Server |
+|---|---|
+| 8766 | A fixture RSS feed (`e2e/harness/fixture-feed.mjs`). No external site is contacted. |
+| 8765 | The API on a throwaway SQLite database in `$TMPDIR/newswire-e2e`, wiped at the start of every run. `NEWSWIRE_ALLOW_PRIVATE_NETWORK=true` is set for this process only, so it can fetch the fixture feed. |
+| 3765 | A production build of the web app in `frontend/.next-e2e` (the dev server's `.next` is left alone). |
+
+Each run rebuilds the web app first, which takes a minute or two. Options, as environment
+variables:
+
+* `E2E_SKIP_BUILD=1` reuses the last e2e build. Faster while writing tests, but it runs stale
+  code if the app changed since.
+* `E2E_WEB_PORT`, `E2E_API_PORT`, `E2E_FEED_PORT` move a server to another port.
+* `E2E_SERVER_LOGS=1` shows the servers' output.
+* `NEWSWIRE_E2E_PYTHON` points at a Python other than `backend/.venv/bin/python`.
+
+`npm run test:e2e:report` opens the HTML report. A failing test keeps its trace and screenshot in
+`frontend/test-results/`; open a trace with `npx playwright show-trace <path>`.
+
 ## First steps after installing
 
 1. **Sources.** Add the RSS/Atom/JSON feeds you are allowed to monitor. Use *Test* before
