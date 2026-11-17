@@ -9,7 +9,7 @@ to do about it.
 |---|---|---|
 | Docker images and `docker-compose.yml` | Written but **never built**: the development machine has no Docker. The bare-metal path (PostgreSQL 17, Python 3.13, Node) is what has been run and tested. | Run `docker compose up --build` once on a machine with Docker and fix anything that fails before relying on it. |
 | Caddy, Nginx and systemd configs | Not exercised. | Treat as templates. |
-| Browser end-to-end tests | There is no Playwright/Cypress suite. End-to-end coverage is an API-level workflow test (sign-in → source → assignment → match → article → approval → publish → public API) plus a manual browser walkthrough of every page in both themes. | Add Playwright tests for the main flows. |
+| Pages outside the main browser flows | The Playwright suite (`frontend/e2e/`, Chromium only, SQLite) covers setup, sources, headlines, research, the article editor, publishing to the built-in API and unpublishing, plus a 375 px overflow check of every sidebar page and theme switching. The Image Library, WordPress and webhook destinations, users and roles, source import, scheduled publishing and the worker's own polling are covered by API tests only. | Extend `frontend/e2e/` when changing those pages. |
 | WordPress connector | Tested against a mocked REST API, not a live WordPress site. | Use *Test connection* and *Publish as draft* first. |
 | Openverse / Wikimedia Commons | Parsers tested on recorded response shapes; live calls depend on those services. | Search returns a clear provider error when they are unavailable. |
 
