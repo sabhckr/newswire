@@ -9,6 +9,8 @@ Commands
   verify-backup PATH           Check a backup archive's checksums and database dump
   restore PATH --yes           Restore a backup (DESTRUCTIVE: replaces the target database)
   import-geonames ADMIN1 CITIES [--min-population N]
+  import-sources (--pack NAME | FILE)  Add sources from a bundled pack (e.g. bangladesh) or a sources JSON file
+  list-source-packs            List the bundled source packs
                                Import GeoNames admin1CodesASCII.txt and a cities file (CC BY 4.0)
 """
 
@@ -160,6 +162,47 @@ def cmd_restore(args) -> int:
     return 0
 
 
+def cmd_list_source_packs(_args) -> int:
+    from app.services.source_import import list_packs
+
+    for pack in list_packs():
+        print(f"{pack['id']:<16} {pack['count']:>4} sources  {pack['name']}  (verified {pack['verified_at']})")
+    return 0
+
+
+def cmd_import_sources(args) -> int:
+    import json
+
+    from app.services.audit import record
+    from app.services.bootstrap import bootstrap
+    from app.services.source_import import import_entries, load_pack
+
+    if args.pack:
+        entries = load_pack(args.pack)
+        if entries is None:
+            print(f"No source pack named {args.pack!r}. Run list-source-packs.", file=sys.stderr)
+            return 1
+    elif args.file:
+        data = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        entries = data.get("sources", []) if isinstance(data, dict) else data
+    else:
+        print("Give --pack NAME or a FILE", file=sys.stderr)
+        return 2
+    db = _db()
+    try:
+        bootstrap(db)
+        result = import_entries(db, entries)
+        record(db, "source.imported", f"CLI import: {result['created']} sources added, {result['skipped']} already present",
+               entity_type="source")
+        db.commit()
+    finally:
+        db.close()
+    print(f"Added {result['created']} sources; {result['skipped']} already present; {len(result['errors'])} errors")
+    for e in result["errors"]:
+        print(f"  {e['feed_url']}: {e['error']}", file=sys.stderr)
+    return 0 if not result["errors"] else 1
+
+
 def cmd_import_geonames(args) -> int:
     from app.geography.gazetteer import invalidate_gazetteer
     from app.geography.seed import import_geonames
@@ -204,6 +247,11 @@ def main(argv: list[str] | None = None) -> int:
     gn.add_argument("cities")
     gn.add_argument("--min-population", type=int, default=15000)
     gn.set_defaults(fn=cmd_import_geonames)
+    sp = sub.add_parser("import-sources")
+    sp.add_argument("file", nargs="?")
+    sp.add_argument("--pack")
+    sp.set_defaults(fn=cmd_import_sources)
+    sub.add_parser("list-source-packs").set_defaults(fn=cmd_list_source_packs)
     args = p.parse_args(argv)
     from app.core.logging import configure_logging
 

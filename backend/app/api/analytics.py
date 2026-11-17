@@ -30,15 +30,16 @@ def report(
     start: date | None = None,
     end: date | None = None,
     format: Literal["json", "csv"] = "json",
+    tz: str | None = Query(None, max_length=64, description="IANA time zone for day boundaries; UTC if omitted"),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(require(P.READ)),
 ):
-    s, e = Q.date_range(start, end)
+    s, e = Q.date_range(start, end, tz=tz)
     if s > e:
         raise bad_request("start must be before end")
     if (e - s).days > 366:
         raise bad_request("Reports cover at most one year")
-    rows = Q.REPORTS[name](db, s, e)
+    rows = Q.REPORTS[name](db, s, e, tz=tz)
     if format == "csv":
         return csv_response(rows, f"newswire-{name}-{s.date()}-{e.date()}.csv")
-    return {"report": name, "start": s, "end": e, "rows": rows}
+    return {"report": name, "start": s, "end": e, "time_zone": Q.zone_name(tz), "rows": rows}

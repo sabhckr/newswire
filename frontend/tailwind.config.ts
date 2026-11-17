@@ -21,8 +21,18 @@ export default {
         info: token("info"),
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
-        serif: ["Source Serif 4", "Source Serif Pro", "Georgia", "Cambria", "Times New Roman", "serif"],
+        // Bangla glyphs fall through the Latin fonts to the first installed Bengali font
+        // (Noto/Hind/SolaimanLipi where installed, Kohinoor on macOS, Nirmala UI on Windows).
+        sans: [
+          "Inter", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial",
+          "Noto Sans Bengali", "Hind Siliguri", "SolaimanLipi", "Kohinoor Bangla", "Bangla Sangam MN", "Nirmala UI", "Vrinda",
+          "sans-serif",
+        ],
+        serif: [
+          "Source Serif 4", "Source Serif Pro", "Georgia", "Cambria", "Times New Roman",
+          "Noto Serif Bengali", "SolaimanLipi", "Kohinoor Bangla", "Bangla Sangam MN", "Nirmala UI", "Vrinda",
+          "serif",
+        ],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
       },
       fontSize: { "2xs": ["11px", "16px"], xs: ["12px", "16px"], sm: ["13px", "20px"], base: ["14px", "22px"] },

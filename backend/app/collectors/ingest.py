@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -11,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import select
@@ -19,12 +21,12 @@ from sqlalchemy.orm import Session
 
 from app.collectors import robots
 from app.collectors.dedup import HeadlineIndex, find_content_duplicate, find_same_article, window_start
-from app.collectors.page_meta import fetch_page_metadata
-from app.collectors.parsers import FeedParseError, ParsedEntry, parse_feed
+from app.collectors.page_meta import clean_page_title, fetch_page_metadata, looks_like_article
+from app.collectors.parsers import FeedParseError, ParsedEntry, looks_like_sitemap, parse_feed, parse_sitemap
 from app.core.config import get_settings
 from app.core.db import is_postgres, utcnow
 from app.core.http import ResponseTooLarge, UnsafeURLError, describe_error, make_client, safe_request
-from app.core.text import content_hash
+from app.core.text import bangla_share, content_hash
 from app.core.urls import host_of, safe_normalize
 from app.models import (
     AssignmentKeyword,  # noqa: F401  (ensures mappers are configured)
@@ -41,6 +43,50 @@ log = logging.getLogger(__name__)
 
 ClientFactory = Callable[[], httpx.Client]
 MAX_PAGE_LOOKUPS_PER_FETCH = 10
+# Entries without a headline (plain sitemaps) only get a page lookup while they are recent, so a
+# new source does not walk the publisher's archive.
+PAGE_LOOKUP_MAX_AGE = timedelta(days=2)
+# Pages that gave no usable headline are not asked again for a while.
+LOOKUP_MISS_TTL_SECONDS = 6 * 3600
+_lookup_misses: dict[str, float] = {}
+_misses_lock = threading.Lock()
+
+# Countries whose clocks run a fixed offset ahead of UTC (no daylight saving). Feeds there often
+# label local time as UTC, which puts a story published minutes ago hours into the future.
+LOCAL_TIME_ZONES = {
+    "BD": "Asia/Dhaka", "IN": "Asia/Kolkata", "NP": "Asia/Kathmandu", "BT": "Asia/Thimphu",
+    "LK": "Asia/Colombo", "MM": "Asia/Yangon", "PK": "Asia/Karachi",
+}
+
+
+def correct_local_time_as_utc(published: datetime, now: datetime, country_code: str | None) -> datetime | None:
+    """The real publication time when `published` is local time mislabelled as UTC, else None.
+
+    Only times between 10 minutes and the zone's offset (plus 10 minutes) ahead of now qualify,
+    so the corrected time is never in the future."""
+    zone = LOCAL_TIME_ZONES.get((country_code or "").upper())
+    if zone is None:
+        return None
+    offset = published.astimezone(ZoneInfo(zone)).utcoffset() or timedelta(0)
+    ahead = published - now
+    if timedelta(minutes=10) < ahead <= offset + timedelta(minutes=10):
+        return published - offset
+    return None
+
+
+def _recent_miss(url: str) -> bool:
+    with _misses_lock:
+        until = _lookup_misses.get(url)
+        return until is not None and until > time.monotonic()
+
+
+def _remember_miss(url: str) -> None:
+    now = time.monotonic()
+    with _misses_lock:
+        if len(_lookup_misses) > 5000:
+            for k in [k for k, v in _lookup_misses.items() if v <= now] or list(_lookup_misses)[:1000]:
+                _lookup_misses.pop(k, None)
+        _lookup_misses[url] = now + LOOKUP_MISS_TTL_SECONDS
 
 
 @dataclass
@@ -50,10 +96,11 @@ class SourceSnapshot:
     etag: str | None
     last_modified: str | None
     respect_robots: bool
+    source_type: str = "rss"
 
     @classmethod
     def of(cls, s: Source) -> SourceSnapshot:
-        return cls(s.id, s.feed_url, s.etag, s.last_modified, s.respect_robots)
+        return cls(s.id, s.feed_url, s.etag, s.last_modified, s.respect_robots, s.source_type or "rss")
 
 
 @dataclass
@@ -70,6 +117,7 @@ class FetchOutcome:
     error: str | None = None
     retry_after: int | None = None
     final_url: str | None = None
+    note: str | None = None  # e.g. which child sitemap of a sitemap index was read
 
 
 @dataclass
@@ -106,12 +154,9 @@ def fetch_http(client: httpx.Client, snap: SourceSnapshot) -> FetchOutcome:
             out.etag = resp.headers.get("etag")
             out.last_modified = resp.headers.get("last-modified")
         else:
-            out.error = f"HTTP {resp.status_code}"
-            if resp.status_code in (401, 402, 403):
-                out.error += " (access restricted; NEWSWIRE does not bypass access controls)"
-            ra = resp.headers.get("retry-after")
-            if ra and ra.isdigit():
-                out.retry_after = int(ra)
+            _http_error(out, resp)
+        if out.status == "success" and looks_like_sitemap(out.content or b""):
+            _follow_sitemap_index(client, snap, out)
     except (UnsafeURLError, ResponseTooLarge, httpx.HTTPError) as exc:
         out.error = describe_error(exc)
     except Exception as exc:  # pragma: no cover - defensive: one source must not stop the cycle
@@ -120,6 +165,59 @@ def fetch_http(client: httpx.Client, snap: SourceSnapshot) -> FetchOutcome:
     finally:
         out.duration_ms = int((time.monotonic() - t0) * 1000)
     return out
+
+
+def _http_error(out: FetchOutcome, resp: httpx.Response) -> None:
+    out.status = "error"
+    out.error = f"HTTP {resp.status_code}"
+    if resp.status_code in (401, 402, 403):
+        out.error += " (access restricted; NEWSWIRE does not bypass access controls)"
+    ra = resp.headers.get("retry-after")
+    if ra and ra.isdigit():
+        out.retry_after = int(ra)
+
+
+def pick_child_sitemap(children: list[tuple[str, datetime | None]]) -> str | None:
+    """The child of a sitemap index most likely to hold today's news: news sitemaps first,
+    then the most recently modified, then the first listed."""
+    if not children:
+        return None
+    news = [c for c in children if "news" in c[0].lower()]
+    pool = news or children
+    dated = [c for c in pool if c[1] is not None]
+    if dated:
+        return max(dated, key=lambda c: c[1])[0]
+    return pool[0][0]
+
+
+def _follow_sitemap_index(client: httpx.Client, snap: SourceSnapshot, out: FetchOutcome) -> None:
+    """Replace a sitemap index with one child sitemap (one level only)."""
+    try:
+        index = parse_sitemap(out.content or b"")
+    except FeedParseError:
+        return  # leave it to the normal parse step to report
+    if index.feed_format != "sitemap_index":
+        return
+    child = pick_child_sitemap(index.children)
+    if child is None:
+        out.status, out.error = "error", "Sitemap index lists no sitemaps"
+        return
+    if snap.respect_robots:
+        allowed, reason = robots.is_allowed(client, child)
+        if not allowed:
+            out.status, out.error = "blocked", reason
+            return
+    resp = safe_request(client, "GET", child, headers={"Accept": "application/xml, text/xml;q=0.9, */*;q=0.5"})
+    out.http_status = resp.status_code
+    if not 200 <= resp.status_code < 300:
+        _http_error(out, resp)
+        out.error = f"{out.error} (child sitemap {child})"
+        return
+    out.content = resp.content
+    out.content_type = resp.headers.get("content-type")
+    # The index's validators say nothing about the child, so do not send them next time.
+    out.etag = out.last_modified = None
+    out.note = f"Sitemap index: read {child}"
 
 
 def fetch_many(snaps: list[SourceSnapshot], client_factory: ClientFactory | None = None) -> list[FetchOutcome]:
@@ -222,7 +320,7 @@ def ingest_entries(
 
     for entry in entries:
         normalized = safe_normalize(entry.url)
-        if not normalized or not entry.title:
+        if not normalized or (not entry.title and not source.extract_page_metadata):
             skipped += 1
             continue
         if normalized in seen_in_batch:
@@ -237,31 +335,74 @@ def ingest_entries(
             duplicates += 1
             continue
 
+        title = entry.title
         published = entry.published_at
         summary = entry.summary
         image_urls = list(entry.image_urls)
         language = entry.language or source.language
+        untitled = not title
+        if untitled and (
+            (published is not None and published < now - PAGE_LOOKUP_MAX_AGE) or _recent_miss(normalized)
+        ):
+            skipped += 1
+            continue
+        meta = None
+        looked_up = False
         if source.extract_page_metadata and client is not None and page_lookups < MAX_PAGE_LOOKUPS_PER_FETCH:
+            if page_lookups:
+                time.sleep(get_settings().per_host_delay_seconds)
             page_lookups += 1
+            looked_up = True
             meta = fetch_page_metadata(client, entry.url, source.respect_robots)
-            if meta:
-                canonical = canonical or safe_normalize(meta.canonical_url)
-                if canonical and canonical != normalized:
-                    other = find_same_article(db, canonical, None)
-                    if other is not None:
-                        _link_source(db, other.id, source.id, entry.guid)
-                        duplicates += 1
-                        continue
-                summary = summary or meta.description
-                if meta.image_url and meta.image_url not in image_urls:
-                    image_urls.append(meta.image_url)
-                published = published or meta.published_at  # type: ignore[assignment]
-                language = language or meta.language
+        # Entries without a title (plain sitemaps) take the page's own title when the page is a
+        # story (not a section or tag page), or are skipped.
+        if untitled:
+            if meta is not None and meta.title and looks_like_article(entry.url, meta):
+                title = clean_page_title(meta.title, entry.url, meta.site_name)
+            elif looked_up:
+                _remember_miss(normalized)
+        if not title:
+            skipped += 1
+            continue
+        if meta:
+            canonical = canonical or safe_normalize(meta.canonical_url)
+            if canonical and canonical != normalized:
+                other = find_same_article(db, canonical, None)
+                if other is not None:
+                    _link_source(db, other.id, source.id, entry.guid)
+                    duplicates += 1
+                    continue
+            summary = summary or meta.description
+            if meta.image_url and meta.image_url not in image_urls:
+                image_urls.append(meta.image_url)
+            published = published or meta.published_at  # type: ignore[assignment]
+            language = language or meta.language
 
-        chash = content_hash(entry.title, summary)
+        # Feeds sometimes declare the wrong language (WordPress sites in Bangla that say en-US,
+        # English editions that say bn). The script of the text settles it.
+        share = bangla_share(f"{title} {summary or ''}"[:600])
+        if share >= 0.5:
+            language = "bn"
+        elif share < 0.1 and language and language.lower().startswith("bn"):
+            fallback = source.language if source.language and not source.language.lower().startswith("bn") else None
+            language = fallback
+        # A publication time more than 10 minutes in the future is wrong. When it is the source
+        # country's local time labelled as UTC it is corrected; otherwise it is kept for reference
+        # but not used. Either way the time as given stays in `extra`.
+        extra_dates = {}
+        if published is not None and published > now + timedelta(minutes=10):
+            fixed = correct_local_time_as_utc(published, now, source.country_code)
+            if fixed is not None:
+                extra_dates["published_at_as_given"] = published.isoformat()
+                published = fixed
+            else:
+                extra_dates["rejected_published_at"] = published.isoformat()
+                published = None
+
+        chash = content_hash(title, summary)
         item = NewsItem(
             source_id=source.id,
-            title=entry.title,
+            title=title,
             url=entry.url,
             normalized_url=normalized,
             canonical_url=canonical,
@@ -278,6 +419,7 @@ def ingest_entries(
             retrieved_at=now,
             sort_at=_sort_time(published, now),
             extra={
+                **extra_dates,
                 "categories": entry.categories,
                 **({"geo_point": list(entry.geo_point)} if entry.geo_point else {}),
             },
@@ -290,7 +432,7 @@ def ingest_entries(
             item.duplicate_reason = "content_hash"
             item.duplicate_score = 100.0
         else:
-            hit = headline_index.best(entry.title, dedup_cfg["headline_threshold"], dedup_cfg["min_headline_tokens"])
+            hit = headline_index.best(title, dedup_cfg["headline_threshold"], dedup_cfg["min_headline_tokens"])
             if hit is not None:
                 item.is_duplicate = True
                 item.duplicate_of_id = hit[0]
@@ -377,8 +519,9 @@ def process_outcome(
             fetch_log.items_new = len(new_items)
             fetch_log.items_duplicate = dups
             fetch_log.items_skipped = skipped
-            if parsed.warning:
-                fetch_log.error_message = parsed.warning
+            notes = "; ".join(w for w in (outcome.note, parsed.warning) if w)
+            if notes:
+                fetch_log.error_message = notes[:2000]
             source.etag = (outcome.etag or None) and outcome.etag[:512]
             source.last_modified = (outcome.last_modified or None) and outcome.last_modified[:128]
             source.total_items = (source.total_items or 0) + len(new_items)
@@ -499,7 +642,7 @@ def probe_source_url(
 ) -> dict:
     """Connectivity + parse test without storing anything."""
     factory = client_factory or make_client
-    snap = SourceSnapshot(uuid.uuid4(), url, None, None, respect_robots)
+    snap = SourceSnapshot(uuid.uuid4(), url, None, None, respect_robots, source_type)
     with factory() as client:
         outcome = fetch_http(client, snap)
     result: dict = {
@@ -531,7 +674,7 @@ def probe_source_url(
         feed_format=parsed.feed_format,
         language=parsed.language,
         entries=len(parsed.entries),
-        warning=parsed.warning,
+        warning="; ".join(w for w in (outcome.note, parsed.warning) if w) or None,
         sample=[
             {
                 "title": e.title,

@@ -3,6 +3,64 @@
 All notable changes to NEWSWIRE. Versions follow [semantic versioning](https://semver.org/).
 Releases with a migration that drops or rewrites data are marked **⚠ data migration**.
 
+## 0.10.0 — 2026-11-17
+
+Bangladesh focus: Bangla text handling, a Bangladesh gazetteer, news sitemaps and a source pack
+of Bangladeshi newspapers. No migration; existing installations pick up the new gazetteer data
+on their next start.
+
+### Bangla language
+- Matching, deduplication and clustering understand Bangla: zero-width joiners removed, Bangla
+  digits read as ASCII, case endings and plural markers stripped for the inflection level
+  (`ঢাকা` matches `ঢাকায়`, `পদ্মা সেতু` matches `পদ্মা সেতুর`), Bangla stop words, Bangla slugs.
+- Bangla datelines (`ঢাকা, ১৭ নভেম্বর (বাসস) :`) and correspondent credits (`রাজশাহী
+  প্রতিনিধি`, `Staff Correspondent, Bogura`) give a report its event location.
+- Bengali system fonts in the interface and the article preview; Bangla article previews are
+  marked `lang="bn"`.
+
+### Geography
+- Bangladesh's 8 divisions and 64 districts (ISO 3166-2:BD) and 28 towns, with Bangla names,
+  older spellings and a division → district → town hierarchy.
+- Bangla names for continents, 59 countries and 41 foreign cities; inflected Bangla place names
+  (`ঢাকায়`, `চট্টগ্রামের`) are recognised.
+- The GeoNames import keeps the curated Bangladesh regions and does not duplicate its districts.
+
+### Collection
+- News sitemaps (Google News sitemap format) as a source type, for publishers without RSS.
+  Sitemap indexes are followed to their newest news sitemap. Plain sitemaps can be used with
+  page metadata lookup, which now also supplies a missing headline: only story pages count
+  (not section or tag pages), the site name is dropped from the page title, entries older than
+  two days are not looked up, pages without a usable headline are not asked again for six hours,
+  and lookups to one site are spaced by the per-host delay.
+- *Find feeds on a website*: checks a site's feed links and the news sitemaps in its robots.txt
+  and tests each one. When nothing else works it tries the site's other sitemaps and reads two
+  of the newest pages to show the headlines page lookup would give. Each result shows sample
+  headlines, and feeds whose newest entry is more than three days old are marked.
+- Source packs: bundled lists of public feeds that can be added in one step
+  (Sources → Source packs, or `python -m app.cli import-sources --pack NAME`).
+- **Bangladeshi newspapers** pack: 68 feeds (57 Bangla, 11 English; 42 RSS,
+  20 news sitemaps, 6 plain sitemaps read with page lookup), each fetched and parsed on
+  17 November 2026 with robots.txt checked. Includes Prothom Alo, Jugantor, Samakal, Ittefaq,
+  Manab Zamin, Amader Shomoy, Amar Desh, bdnews24, The Daily Star, Dhaka Tribune, New Age, The
+  Business Standard, BSS, regional papers from Chattogram, Sylhet, Bogura, Jashore, Rajshahi and
+  Cox's Bazar, TV news sites, BBC News Bangla and DW Bangla.
+- Feed dates in non-standard formats (`Tue, 17 Nov 2026, 11:54:23 +0600`) are read. A
+  publication time more than 10 minutes in the future is corrected when it is the source
+  country's local time labelled as UTC (Bangladesh and other countries with a fixed offset ahead
+  of UTC), and set aside otherwise; the time as given is kept. Sitemap dates without a time are
+  not treated as publication times.
+- A report's language follows its script when the feed declares the wrong one (Bangla
+  WordPress feeds that say `en-US`, English feeds that say `bn`).
+
+### Search
+- News search understands Bangla: each Bangla word also finds the words that start with it or
+  its stem (`ঢাকা` and `ঢাকায়` both find `ঢাকায়`, `ঢাকার`), whichever way `য়`, `ড়` and `ঢ়`
+  are encoded, and common function words are ignored. `-word` excludes. On the local data set
+  `নির্বাচনে` went from 42 to 105 reports.
+
+### Analytics
+- Reports count days in the viewer's time zone instead of UTC.
+
 ## 0.9.0 — 2026-11-17
 
 First complete build, covering milestones M0–M9 of the [architecture plan](ARCHITECTURE.md#9-milestones).

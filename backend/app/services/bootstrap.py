@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.text import slugify
-from app.geography.seed import seed_builtin
+from app.geography.seed import seed_bangladesh, seed_builtin
 from app.models import Category, Role, ScheduledJob
 from app.publishing.service import ensure_builtin_destination
 from app.security.permissions import ROLE_DESCRIPTIONS
@@ -38,5 +38,6 @@ def bootstrap(db: Session) -> None:
             db.add(ScheduledJob(name=name, description=desc))
     db.flush()
     seed_builtin(db)
+    seed_bangladesh(db)
     ensure_builtin_destination(db)
     db.commit()

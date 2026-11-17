@@ -5,6 +5,7 @@ import {
   Download,
   FlaskConical,
   MoreHorizontal,
+  Package,
   Pause,
   Pencil,
   Play,
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 import { useSourceActions } from "@/components/sources/actions";
 import { ProbeResultPanel, type ProbeResult } from "@/components/sources/probe-result";
 import { SourceDialog } from "@/components/sources/source-dialog";
+import { SourcePacksDialog } from "@/components/sources/source-packs-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useConfirm } from "@/components/ui/confirm";
@@ -94,6 +96,7 @@ export default function SourcesPage() {
   const [editing, setEditing] = useState<SourceOut | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [probe, setProbe] = useState<{ source: SourceOut; result: ProbeResult } | null>(null);
+  const [packsOpen, setPacksOpen] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: { index: number; feed_url?: string; error: string }[] } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const term = useDebounced(q.trim());
@@ -224,6 +227,11 @@ export default function SourcesPage() {
                     e.target.value = "";
                   }}
                 />
+                <Tip content="Add a ready-made list of public feeds, such as Bangladeshi newspapers">
+                  <Button variant="outline" onClick={() => setPacksOpen(true)}>
+                    <Package className="h-4 w-4" /> Source packs
+                  </Button>
+                </Tip>
                 <Tip content="Import a NEWSWIRE JSON export or an OPML subscription list">
                   <Button variant="outline" onClick={() => fileRef.current?.click()} loading={importFile.isPending}>
                     <Upload className="h-4 w-4" /> Import
@@ -242,6 +250,15 @@ export default function SourcesPage() {
             ) : null}
           </>
         }
+      />
+
+      <SourcePacksDialog
+        open={packsOpen}
+        onOpenChange={setPacksOpen}
+        onImported={(r) => {
+          setImportResult(r);
+          qc.invalidateQueries({ queryKey: ["sources"] });
+        }}
       />
 
       {params.get("welcome") === "1" ? (
@@ -291,6 +308,7 @@ export default function SourcesPage() {
             <option value="rss">RSS</option>
             <option value="atom">Atom</option>
             <option value="json">JSON</option>
+            <option value="sitemap">Sitemap</option>
           </Select>
           <Input
             value={country}

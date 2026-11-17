@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_DIR = BACKEND_DIR.parent
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     min_poll_interval_seconds: int = 60
     default_poll_interval_seconds: int = 300
     max_backoff_seconds: int = 6 * 3600
-    user_agent: str = "NEWSWIRE/0.9 (self-hosted news monitor)"
+    user_agent: str = "NEWSWIRE/0.10 (self-hosted news monitor)"
     # Optional contact string appended to the User-Agent (Wikimedia asks API clients for one).
     contact: str = ""
 

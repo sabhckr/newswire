@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import utcnow
-from app.core.text import STOPWORDS, fold, significant_tokens, tokens
+from app.core.text import STOPWORDS, fold, is_bangla, significant_tokens, stem, tokens
 from app.models import NewsGeography, NewsItem, Source, StoryCluster, StoryClusterItem
 from app.services.settings import get_setting
 
@@ -44,7 +44,8 @@ class ItemSig:
 
 def make_sig(item_id, title, summary, source_id, sort_at, duplicate_of, countries=None, cluster_id=None) -> ItemSig:
     folded = fold(title)
-    sig_words = [t for t in tokens(folded, folded=True) if t not in STOPWORDS]
+    # Bangla words are reduced to their stem so "ঢাকায়" and "ঢাকার" compare as the same word.
+    sig_words = [stem(t) if is_bangla(t) else t for t in tokens(folded, folded=True) if t not in STOPWORDS]
     return ItemSig(
         id=item_id,
         title=title,

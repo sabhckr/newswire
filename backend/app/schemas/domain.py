@@ -64,7 +64,7 @@ class PasswordResetIn(BaseModel):
 
 # --- sources -------------------------------------------------------------------------------
 
-SourceType = Literal["rss", "atom", "json"]
+SourceType = Literal["rss", "atom", "json", "sitemap"]
 
 
 class SourceIn(BaseModel):
@@ -131,6 +131,11 @@ class SourceOut(ORM):
     health: str
     created_at: datetime
     updated_at: datetime
+
+
+class SourceDiscoverIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+    respect_robots: bool = True
 
 
 class SourceTestIn(BaseModel):

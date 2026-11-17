@@ -1,0 +1,118 @@
+# Bangladesh: 8 divisions (admin1), 64 districts (admin2) and towns, with Bangla names.
+# Codes and current romanisations follow ISO 3166-2:BD (2020 spelling update).
+#
+# kind|code|English name|Bangla names (;)|other spellings (;)|parent code
+#
+# Divisions match only as "<name> Division" / "<বাংলা> বিভাগ", never by the bare name.
+# Districts match as "<name> District" / "<বাংলা> জেলা", and by the bare name unless a town
+# row below (the district headquarters) owns the bare name.
+division|BD-A|Barishal|বরিশাল|Barisal|
+division|BD-B|Chattogram|চট্টগ্রাম|Chittagong|
+division|BD-C|Dhaka|ঢাকা||
+division|BD-D|Khulna|খুলনা||
+division|BD-E|Rajshahi|রাজশাহী||
+division|BD-F|Rangpur|রংপুর||
+division|BD-G|Sylhet|সিলেট||
+division|BD-H|Mymensingh|ময়মনসিংহ||
+# Barishal division
+district|BD-02|Barguna|বরগুনা||BD-A
+district|BD-06|Barishal|বরিশাল|Barisal|BD-A
+district|BD-07|Bhola|ভোলা||BD-A
+district|BD-25|Jhalakathi|ঝালকাঠি|Jhalokati;Jhalokathi;Jhalakati|BD-A
+district|BD-51|Patuakhali|পটুয়াখালী||BD-A
+district|BD-50|Pirojpur|পিরোজপুর||BD-A
+# Chattogram division
+district|BD-01|Bandarban|বান্দরবান||BD-B
+district|BD-04|Brahmanbaria|ব্রাহ্মণবাড়িয়া||BD-B
+district|BD-09|Chandpur|চাঁদপুর||BD-B
+district|BD-10|Chattogram|চট্টগ্রাম;চট্রগ্রাম|Chittagong|BD-B
+district|BD-11|Cox's Bazar|কক্সবাজার|Coxs Bazar;Cox’s Bazar|BD-B
+district|BD-08|Cumilla|কুমিল্লা|Comilla|BD-B
+district|BD-16|Feni|ফেনী||BD-B
+district|BD-29|Khagrachhari|খাগড়াছড়ি|Khagrachari|BD-B
+district|BD-31|Lakshmipur|লক্ষ্মীপুর|Laxmipur;Lakshipur|BD-B
+district|BD-47|Noakhali|নোয়াখালী||BD-B
+district|BD-56|Rangamati|রাঙ্গামাটি;রাঙামাটি||BD-B
+# Dhaka division
+district|BD-13|Dhaka|ঢাকা||BD-C
+district|BD-15|Faridpur|ফরিদপুর||BD-C
+district|BD-18|Gazipur|গাজীপুর||BD-C
+district|BD-17|Gopalganj|গোপালগঞ্জ||BD-C
+district|BD-26|Kishoreganj|কিশোরগঞ্জ||BD-C
+district|BD-36|Madaripur|মাদারীপুর||BD-C
+district|BD-33|Manikganj|মানিকগঞ্জ||BD-C
+district|BD-35|Munshiganj|মুন্সীগঞ্জ;মুন্সিগঞ্জ||BD-C
+district|BD-40|Narayanganj|নারায়ণগঞ্জ||BD-C
+district|BD-42|Narsingdi|নরসিংদী|Narshingdi|BD-C
+district|BD-53|Rajbari|রাজবাড়ী||BD-C
+district|BD-62|Shariatpur|শরীয়তপুর;শরিয়তপুর||BD-C
+district|BD-63|Tangail|টাঙ্গাইল||BD-C
+# Khulna division
+district|BD-05|Bagerhat|বাগেরহাট||BD-D
+district|BD-12|Chuadanga|চুয়াডাঙ্গা||BD-D
+district|BD-22|Jashore|যশোর|Jessore|BD-D
+district|BD-23|Jhenaidah|ঝিনাইদহ|Jhenaidaha|BD-D
+district|BD-27|Khulna|খুলনা||BD-D
+district|BD-30|Kushtia|কুষ্টিয়া||BD-D
+district|BD-37|Magura|মাগুরা||BD-D
+district|BD-39|Meherpur|মেহেরপুর||BD-D
+district|BD-43|Narail|নড়াইল||BD-D
+district|BD-58|Satkhira|সাতক্ষীরা||BD-D
+# Mymensingh division
+district|BD-21|Jamalpur|জামালপুর||BD-H
+district|BD-34|Mymensingh|ময়মনসিংহ||BD-H
+district|BD-41|Netrakona|নেত্রকোনা;নেত্রকোণা|Netrokona|BD-H
+district|BD-57|Sherpur|শেরপুর||BD-H
+# Rajshahi division
+district|BD-03|Bogura|বগুড়া|Bogra|BD-E
+district|BD-45|Chapai Nawabganj|চাঁপাইনবাবগঞ্জ;চাঁপাই নবাবগঞ্জ|Chapainawabganj|BD-E
+district|BD-24|Joypurhat|জয়পুরহাট|Jaipurhat|BD-E
+district|BD-48|Naogaon|নওগাঁ||BD-E
+district|BD-44|Natore|নাটোর||BD-E
+district|BD-49|Pabna|পাবনা||BD-E
+district|BD-54|Rajshahi|রাজশাহী||BD-E
+district|BD-59|Sirajganj|সিরাজগঞ্জ||BD-E
+# Rangpur division
+district|BD-14|Dinajpur|দিনাজপুর||BD-F
+district|BD-19|Gaibandha|গাইবান্ধা||BD-F
+district|BD-28|Kurigram|কুড়িগ্রাম||BD-F
+district|BD-32|Lalmonirhat|লালমনিরহাট||BD-F
+district|BD-46|Nilphamari|নীলফামারী||BD-F
+district|BD-52|Panchagarh|পঞ্চগড়||BD-F
+district|BD-55|Rangpur|রংপুর||BD-F
+district|BD-64|Thakurgaon|ঠাকুরগাঁও||BD-F
+# Sylhet division
+district|BD-20|Habiganj|হবিগঞ্জ||BD-G
+district|BD-38|Moulvibazar|মৌলভীবাজার|Maulvibazar|BD-G
+district|BD-61|Sunamganj|সুনামগঞ্জ||BD-G
+district|BD-60|Sylhet|সিলেট||BD-G
+# Towns. Rows whose name matches a built-in city are merged into it (and moved under the
+# district); the others are created.
+city||Dhaka|ঢাকা|Dacca|BD-13
+city||Chattogram|চট্টগ্রাম;চট্রগ্রাম|Chittagong|BD-10
+city||Khulna|খুলনা||BD-27
+city||Rajshahi|রাজশাহী||BD-54
+city||Sylhet|সিলেট||BD-60
+city||Barishal|বরিশাল|Barisal|BD-06
+city||Rangpur|রংপুর||BD-55
+city||Mymensingh|ময়মনসিংহ||BD-34
+city||Cumilla|কুমিল্লা|Comilla|BD-08
+city||Narayanganj|নারায়ণগঞ্জ||BD-40
+city||Gazipur|গাজীপুর||BD-18
+city||Cox's Bazar|কক্সবাজার|Coxs Bazar;Cox’s Bazar|BD-11
+city||Savar|সাভার||BD-13
+city||Ashulia|আশুলিয়া||BD-13
+city||Keraniganj|কেরানীগঞ্জ||BD-13
+city||Tongi|টঙ্গী||BD-18
+city||Rupganj|রূপগঞ্জ||BD-40
+city||Sonargaon|সোনারগাঁ|Sonargaon|BD-40
+city||Bhairab|ভৈরব||BD-26
+city||Sitakunda|সীতাকুণ্ড||BD-10
+city||Teknaf|টেকনাফ||BD-11
+city||Ukhia|উখিয়া||BD-11
+city||Mongla|মোংলা||BD-05
+city||Benapole|বেনাপোল||BD-22
+city||Ishwardi|ঈশ্বরদী|Ishurdi|BD-49
+city||Saidpur|সৈয়দপুর||BD-46
+city||Kuakata|কুয়াকাটা||BD-51
+city||Sreemangal|শ্রীমঙ্গল|Srimangal|BD-38

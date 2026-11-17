@@ -6,7 +6,8 @@ geography, date) and adds configurable points. Every point awarded is recorded.
 
 Keyword match levels (best one wins per keyword):
   exact       the phrase appears word-for-word (case/accents/punctuation ignored)   x1.0
-  inflection  the phrase appears after light plural stripping (railways ~ railway)  x0.9
+  inflection  the phrase appears with plural/case endings (railways ~ railway,
+              ঢাকায় ~ ঢাকা, সরকারের ~ সরকার)                                          x0.9
   tokens      every word of a multi-word phrase appears, not necessarily together   x0.6
   fuzzy       RapidFuzz partial ratio above the threshold (spelling variants)       x0.5
 A match in the summary instead of the headline is multiplied by `body_factor`.
@@ -21,7 +22,7 @@ from datetime import date, datetime
 
 from rapidfuzz import fuzz
 
-from app.core.text import contains_sequence, fold, stems, tokens
+from app.core.text import all_forms_present, contains_forms, contains_sequence, fold, forms_list, tokens
 from app.geography.gazetteer import Gazetteer
 
 KEYWORD_KINDS = ("required", "primary", "synonym", "secondary", "excluded")
@@ -41,13 +42,13 @@ class KeywordSpec:
     kind: str
     weight: float | None = None
     toks: list[str] = field(default_factory=list)
-    stms: list[str] = field(default_factory=list)
+    frms: list[frozenset[str]] = field(default_factory=list)
     folded: str = ""
 
     def __post_init__(self):
         self.folded = fold(self.term)
         self.toks = tokens(self.folded, folded=True)
-        self.stms = stems(self.toks)
+        self.frms = forms_list(self.toks)
 
 
 @dataclass
@@ -95,9 +96,9 @@ class ItemView:
     retrieved_at: datetime
     geo: list[GeoFact]
     title_toks: list[str] = field(default_factory=list)
-    title_stms: list[str] = field(default_factory=list)
+    title_frms: list[frozenset[str]] = field(default_factory=list)
     body_toks: list[str] = field(default_factory=list)
-    body_stms: list[str] = field(default_factory=list)
+    body_frms: list[frozenset[str]] = field(default_factory=list)
     folded_title: str = ""
     folded_body: str = ""
 
@@ -105,9 +106,9 @@ class ItemView:
         self.folded_title = fold(self.title)
         self.folded_body = fold(self.body)[:4000]
         self.title_toks = tokens(self.folded_title, folded=True)
-        self.title_stms = stems(self.title_toks)
+        self.title_frms = forms_list(self.title_toks)
         self.body_toks = tokens(self.folded_body, folded=True)
-        self.body_stms = stems(self.body_toks)
+        self.body_frms = forms_list(self.body_toks)
 
 
 @dataclass
@@ -143,17 +144,17 @@ class TermHit:
 def find_term(kw: KeywordSpec, item: ItemView, opts: dict, *, allow_partial: bool) -> TermHit | None:
     best: TermHit | None = None
     fields = (
-        ("headline", item.title_toks, item.title_stms, item.folded_title, 1.0),
-        ("summary", item.body_toks, item.body_stms, item.folded_body, float(opts["body_factor"])),
+        ("headline", item.title_toks, item.title_frms, item.folded_title, 1.0),
+        ("summary", item.body_toks, item.body_frms, item.folded_body, float(opts["body_factor"])),
     )
-    for name, toks, stms, folded, field_factor in fields:
+    for name, toks, frms, folded, field_factor in fields:
         if not toks:
             continue
         if contains_sequence(toks, kw.toks):
             factor, level = 1.0, "exact"
-        elif contains_sequence(stms, kw.stms):
+        elif contains_forms(frms, kw.frms):
             factor, level = float(opts["inflection_factor"]), "inflection"
-        elif allow_partial and len(kw.stms) > 1 and set(kw.stms) <= set(stms):
+        elif allow_partial and len(kw.frms) > 1 and all_forms_present(frms, kw.frms):
             factor, level = float(opts["token_factor"]), "tokens"
         elif (
             allow_partial

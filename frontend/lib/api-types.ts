@@ -548,7 +548,7 @@ export interface SourceBrief {
 export interface SourceIn {
   name: string;
   publisher: string;
-  source_type?: "rss" | "atom" | "json";
+  source_type?: "rss" | "atom" | "json" | "sitemap";
   feed_url: string;
   website_url?: string | null;
   country_code?: string | null;
@@ -603,7 +603,7 @@ export interface SourceOut {
 
 export interface SourceTestIn {
   feed_url: string;
-  source_type?: "rss" | "atom" | "json";
+  source_type?: "rss" | "atom" | "json" | "sitemap";
   api_config?: Record<string, unknown> | null;
   respect_robots?: boolean;
 }

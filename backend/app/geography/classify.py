@@ -21,6 +21,7 @@ from app.geography.gazetteer import Gazetteer, Mention
 from app.models import NewsGeography, NewsItem, Source
 
 # "DHAKA, Nov 17 (Reuters) -", "WASHINGTON (AP) —", "Dhaka, 17 November:", "KYIV, Ukraine —"
+# Bangla datelines and correspondent credits are handled further down.
 _DATELINE = re.compile(
     r"^\s*(?P<place>[A-Z][A-Za-zÀ-ɏ'.\- ]{1,40}?)"
     r"(?:,\s*(?P<qual>[A-Z][A-Za-zÀ-ɏ'. ]{1,30}?))?"
@@ -29,9 +30,49 @@ _DATELINE = re.compile(
 )
 
 
+_BN = "\u0980-\u09ff"
+_BN_WORDS = rf"[{_BN}]+(?:[ \-][{_BN}]+){{0,2}}?"
+_BN_MONTHS = "জানুয়ারি|জানুয়ারী|ফেব্রুয়ারি|ফেব্রুয়ারী|মার্চ|এপ্রিল|মে|জুন|জুলাই|আগস্ট|আগষ্ট|সেপ্টেম্বর|অক্টোবর|নভেম্বর|ডিসেম্বর"
+# "ঢাকা, ১৭ নভেম্বর (বাসস) :", "চট্টগ্রাম, ১৭ নভেম্বর, ২০২৬ —"
+_BN_DATELINE = re.compile(
+    rf"^\s*(?P<place>{_BN_WORDS})\s*,\s*\d{{1,2}}\s*(?:{_BN_MONTHS})(?:\s*,?\s*\d{{4}})?"
+    rf"\s*(?:\([^)]{{1,30}}\))?\s*[:—–\-]"
+)
+# Correspondent credits: "রাজশাহী প্রতিনিধি", "উখিয়া (কক্সবাজার) প্রতিনিধি",
+# "নিজস্ব প্রতিবেদক, সিলেট", "Staff Correspondent, Bogura", "Our Correspondent, Cumilla".
+_BN_CORRESPONDENT = re.compile(
+    rf"^\s*(?:(?P<place>{_BN_WORDS})(?:\s*\((?P<qual>[{_BN} ]{{2,30}})\))?\s+(?:প্রতিনিধি|সংবাদদাতা)(?=[\s,:।—–\-]|$)"
+    rf"|(?:নিজস্ব|স্টাফ|বিশেষ|জেলা)\s+(?:প্রতিবেদক|সংবাদদাতা|প্রতিনিধি)\s*,\s*(?P<place2>{_BN_WORDS})(?=[\s,:।—–\-]|$))"
+)
+_EN_CORRESPONDENT = re.compile(
+    r"^\s*(?:Staff|Our|Own|Special|District|Local)\s+(?:Correspondent|Reporter)s?\s*,\s*"
+    r"(?P<place>[A-Z][A-Za-z'’.\-]+(?:\s[A-Z][A-Za-z'’.\-]+){0,2})"
+)
+_TRANSLATE = str.maketrans({"\u200c": None, "\u200d": None, **{chr(0x09E6 + i): str(i) for i in range(10)}})
+
+
+def _detect_bangla(text: str) -> str | None:
+    head = text[:160].translate(_TRANSLATE)
+    m = _BN_DATELINE.match(head)
+    if m:
+        return m.group("place").strip()
+    m = _BN_CORRESPONDENT.match(head)
+    if m:
+        if m.group("place2"):
+            return m.group("place2").strip()
+        place, qual = m.group("place").strip(), (m.group("qual") or "").strip()
+        return f"{place} {qual}".strip()
+    return None
+
+
 def detect_dateline(text: str | None) -> str | None:
     if not text:
         return None
+    if any("\u0980" <= ch <= "\u09ff" for ch in text[:40]):
+        return _detect_bangla(text)
+    m = _EN_CORRESPONDENT.match(text[:160])
+    if m:
+        return m.group("place").strip()
     m = _DATELINE.match(text[:160])
     if not m:
         return None

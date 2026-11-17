@@ -15,9 +15,31 @@ Before any comparison, headlines, summaries and keywords are:
 
 1. Unicode-normalised, lower-cased, with accents removed (`São Paulo` → `sao paulo`) and curly
    quotes and dashes unified.
-2. Split into word tokens; punctuation separates words and is otherwise ignored.
+2. Split into word tokens; punctuation (including the Bangla danda `।`) separates words and is
+   otherwise ignored.
 3. For the *inflection* level, lightly stemmed: plural and common suffix stripping
    (`railways` → `railway`, `strikes` → `strike`). This is not a full stemmer, by design.
+
+### Bangla
+
+Bangla (Bengali) text gets the same treatment, adapted to the script:
+
+* **Spelling variants that look identical are made identical.** Zero-width joiners and
+  non-joiners are removed, so `র‍্যাব` typed with either matches the other. Bangla digits count as
+  ASCII digits (`২০২৬` = `2026`). The old form of khanda-ta (`ত্‍`) becomes `ৎ`. Vowel signs and
+  conjuncts are kept exactly.
+* **Case endings and plural markers are stripped for the inflection level.** A keyword matches
+  its inflected forms: `ঢাকা` finds `ঢাকায়` and `ঢাকার`; `পদ্মা সেতু` finds `পদ্মা সেতুর`; `সরকার`
+  finds `সরকারের` and `সরকারকে`; `শিক্ষার্থী` finds `শিক্ষার্থীদের` and `শিক্ষার্থীরা`. At most two
+  endings are removed and at least two letters must remain, so short words are left alone (`কর`
+  does not match `করে`). The rules are a fixed suffix list, not a dictionary. A few words that
+  happen to end like a suffix can match a shorter word (`আদায়` also matches `আদা`); use an
+  *excluded* phrase if that matters for an assignment.
+* **Stop words.** Common Bangla function words (`এবং`, `ও`, `থেকে`, `আজ`, `করে`, …) are ignored
+  by clustering and by the significant-word counts, as English ones are.
+* **Bangla and English versions of a story are not linked.** Matching is lexical, so an
+  assignment needs keywords in both languages (`Padma Bridge` and `পদ্মা সেতু`) to catch both,
+  and clustering keeps the two languages in separate clusters.
 
 ## Relevance score
 
@@ -115,6 +137,7 @@ cluster's reports by any of these rules:
   ≥ 0.30, **and** either the headlines are loosely similar (≥ 50) or both reports name the same
   country.
 
-A single shared keyword never links two reports. If no cluster fits, the report starts a new one
+Bangla headline words are compared by their stem (`চট্টগ্রামে` and `চট্টগ্রামের` count as the
+same word). A single shared keyword never links two reports. If no cluster fits, the report starts a new one
 once a second related report arrives. Editors can rename clusters, merge them, move reports out
 and lock a cluster against automatic changes.

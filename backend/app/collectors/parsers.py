@@ -1,4 +1,4 @@
-"""Parse RSS, Atom, JSON Feed and permitted JSON APIs into a common structure.
+"""Parse RSS, Atom, JSON Feed, news sitemaps and permitted JSON APIs into a common structure.
 
 Only what the feed itself supplies is kept. HTML is reduced to plain text. Nothing is
 invented: a missing date stays missing, a missing image stays missing.
@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
+
+import xml.etree.ElementTree as ET
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -52,6 +54,7 @@ class ParsedFeed:
     feed_format: str
     entries: list[ParsedEntry]
     warning: str | None = None
+    children: list[tuple[str, datetime | None]] = field(default_factory=list)  # sitemap index
 
 
 _WS = re.compile(r"\s+")
@@ -148,7 +151,14 @@ def _parse_xml(content: bytes, content_type: str | None) -> ParsedFeed:
     feed_lang = _norm_lang(feed.get("language"))
     entries: list[ParsedEntry] = []
     for e in entries_raw:
-        published = _struct_to_dt(e.get("published_parsed")) or _struct_to_dt(e.get("updated_parsed"))
+        # feedparser rejects some real-world formats ("Tue, 17 Nov 2026, 11:54:23 +0600",
+        # "Tuesday, 17 November 2026, …"); the lenient parser below reads those.
+        published = (
+            _struct_to_dt(e.get("published_parsed"))
+            # Read "updated" only when the entry has it: feedparser warns on the implicit alias.
+            or (_struct_to_dt(dict.get(e, "updated_parsed")) or parse_datetime(dict.get(e, "updated")))
+            or parse_datetime(dict.get(e, "published"))
+        )
         content_text = None
         if e.get("content"):
             content_text = html_to_text(e["content"][0].get("value"))
@@ -296,7 +306,120 @@ def _parse_json(content: bytes, api_config: dict | None) -> ParsedFeed:
     return ParsedFeed(None, None, None, "json_api", entries)
 
 
+# --- Sitemaps -------------------------------------------------------------------------------
+# Google News sitemaps (https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap)
+# carry a title, publication date and language for each recent article, so they work as a feed
+# for publishers without RSS. Plain sitemaps only list URLs; their entries have no title unless
+# page metadata lookup is enabled for the source.
+_SM = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+_NEWS = "{http://www.google.com/schemas/sitemap-news/0.9}"
+_IMG = "{http://www.google.com/schemas/sitemap-image/1.1}"
+PLAIN_SITEMAP_LIMIT = 200
+
+
+def looks_like_sitemap(content: bytes) -> bool:
+    head = content[:2000].lower()
+    return b"<urlset" in head or b"<sitemapindex" in head
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _child_text(el: ET.Element, name: str) -> str | None:
+    """Text of the first direct child with this local name, whatever its namespace."""
+    for c in el:
+        if _local(c.tag) == name:
+            return (c.text or "").strip() or None
+    return None
+
+
+_DATE_ONLY = re.compile(r"^\s*\d{4}-\d{2}-\d{2}\s*$")
+
+
+def _sitemap_time(value: str | None) -> datetime | None:
+    """A W3C datetime. A bare date says nothing about the time of day, so it is not used."""
+    if not value or _DATE_ONLY.match(value):
+        return None
+    return parse_datetime(value)
+
+
+def parse_sitemap(content: bytes) -> ParsedFeed:
+    head = content[:4000].lower()
+    if b"<!doctype" in head or b"<!entity" in head:
+        # Sitemaps never need a DTD; refusing them rules out entity-expansion tricks.
+        raise FeedParseError("Sitemap contains a DTD, which is not allowed")
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise FeedParseError(f"Malformed sitemap: {exc}"[:300]) from exc
+    kind = _local(root.tag)
+    if kind == "sitemapindex":
+        children = []
+        for sm in root:
+            loc = _child_text(sm, "loc")
+            if loc and loc.startswith(("http://", "https://")):
+                children.append((loc, parse_datetime(_child_text(sm, "lastmod"))))
+        return ParsedFeed(None, None, None, "sitemap_index", [], children=children)
+    if kind != "urlset":
+        raise FeedParseError(f"Not a sitemap (root element <{kind}>)")
+
+    entries: list[ParsedEntry] = []
+    news_count = 0
+    languages: set[str] = set()
+    for url_el in root:
+        loc = _child_text(url_el, "loc")
+        if not loc or not loc.startswith(("http://", "https://")):
+            continue
+        published = _sitemap_time(_child_text(url_el, "lastmod"))
+        title = None
+        language = None
+        keywords: list[str] = []
+        news = url_el.find(f"{_NEWS}news")
+        if news is not None:
+            news_count += 1
+            title = html_to_text(news.findtext(f"{_NEWS}title"))
+            published = _sitemap_time(news.findtext(f"{_NEWS}publication_date")) or published
+            language = _norm_lang(news.findtext(f"{_NEWS}publication/{_NEWS}language"))
+            kw = news.findtext(f"{_NEWS}keywords") or ""
+            keywords = [k.strip()[:200] for k in kw.split(",") if k.strip()][:30]
+        if language:
+            languages.add(language)
+        images = [
+            (img.findtext(f"{_IMG}loc") or "").strip()
+            for img in url_el.findall(f"{_IMG}image")
+        ]
+        entries.append(
+            ParsedEntry(
+                title=truncate(title, 1000),
+                url=loc.strip(),
+                guid=loc.strip(),
+                published_at=published,
+                language=language,
+                categories=keywords,
+                image_urls=[u for u in images if u.startswith(("http://", "https://"))][:10],
+            )
+        )
+    warning = None
+    if news_count:
+        fmt = "news_sitemap"
+    else:
+        fmt = "sitemap"
+        # Plain sitemaps can list a whole archive, oldest first: keep the most recently modified
+        # URLs, newest first, so page lookups go to new stories. (Stable: undated keep their order.)
+        entries.sort(key=lambda e: e.published_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        entries = entries[:PLAIN_SITEMAP_LIMIT]
+        warning = (
+            "Plain sitemap without news titles: entries are only collected when page metadata "
+            "lookup is enabled for this source (up to 10 new pages per fetch, from the last two days)."
+        )
+    lang = languages.pop() if len(languages) == 1 else None
+    return ParsedFeed(None, None, lang, fmt, entries, warning)
+
+
 def parse_feed(content: bytes, *, content_type: str | None, source_type: str, api_config: dict | None = None) -> ParsedFeed:
+    if source_type == "sitemap" or (source_type != "json" and looks_like_sitemap(content)):
+        return parse_sitemap(content)
     stripped = content.lstrip()[:1]
     is_json = source_type == "json" or (content_type or "").lower().split(";")[0].strip().endswith("json") or stripped in (b"{", b"[")
     if is_json:

@@ -33,6 +33,7 @@ export function NewsRow({
         <button
           type="button"
           onClick={() => onOpen?.(item)}
+          lang={item.language ?? undefined}
           className="block w-full text-left text-sm font-medium leading-snug hover:text-accent"
         >
           {item.title}

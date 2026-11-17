@@ -20,10 +20,11 @@ from app.core.pagination import Page, PageParams, paginate
 from app.core.text import slugify
 from app.models import Category, NewsItem, Source, SourceFetchLog
 from app.schemas.common import CategoryIn, CategoryOut
-from app.schemas.domain import BulkIn, FetchLogOut, SourceIn, SourceOut, SourceTestIn
+from app.schemas.domain import BulkIn, FetchLogOut, SourceDiscoverIn, SourceIn, SourceOut, SourceTestIn
 from app.security import permissions as P
 from app.security.deps import CurrentUser, require
 from app.services.audit import record
+from app.services.source_import import import_entries, list_packs, load_pack
 
 router = APIRouter(tags=["sources"])
 
@@ -89,7 +90,7 @@ def list_sources(
     country: str | None = None,
     language: str | None = None,
     category_id: uuid.UUID | None = None,
-    source_type: Literal["rss", "atom", "json"] | None = None,
+    source_type: Literal["rss", "atom", "json", "sitemap"] | None = None,
     sort: Literal["name", "publisher", "last_checked", "errors", "priority", "created"] = "name",
     params: PageParams = Depends(),
     db: Session = Depends(get_db),
@@ -150,6 +151,15 @@ def test_new_source(body: SourceTestIn, _: CurrentUser = Depends(require(P.SOURC
     return probe_source_url(body.feed_url, body.source_type, body.api_config, body.respect_robots)
 
 
+@router.post("/sources/discover")
+def discover_source_feeds(body: SourceDiscoverIn, _: CurrentUser = Depends(require(P.SOURCES_WRITE))):
+    """Look for the feeds and news sitemaps a website advertises, and test each one."""
+    _check_url(body.url)
+    from app.collectors.discover import discover_feeds
+
+    return discover_feeds(body.url, respect_robots=body.respect_robots)
+
+
 @router.get("/sources/export")
 def export_sources(db: Session = Depends(get_db), _: CurrentUser = Depends(require(P.READ))):
     from app.services.backups import export_config
@@ -179,28 +189,31 @@ async def import_sources(request: Request, db: Session = Depends(get_db), curren
             if url:
                 title = o.get("title") or o.get("text") or url
                 entries.append({"name": title, "publisher": title, "feed_url": url, "website_url": o.get("htmlurl")})
-    created, skipped, errors = 0, 0, []
-    cats = {c.name.lower(): c for c in db.scalars(select(Category))}
-    for i, e in enumerate(entries[:2000]):
-        try:
-            body = SourceIn(**{k: v for k, v in e.items() if k in SourceIn.model_fields and k != "category_ids"})
-            validate_url(body.feed_url)
-        except Exception as exc:  # noqa: BLE001
-            errors.append({"index": i, "feed_url": e.get("feed_url"), "error": str(exc)[:200]})
-            continue
-        if _live_duplicate(db, body.feed_url):
-            skipped += 1
-            continue
-        s = Source()
-        _apply(db, s, body)
-        s.categories = [cats[n.lower()] for n in e.get("categories", []) if isinstance(n, str) and n.lower() in cats]
-        s.next_fetch_at = utcnow()
-        db.add(s)
-        created += 1
+    result = import_entries(db, entries)
+    created, skipped, errors = result["created"], result["skipped"], result["errors"]
     record(db, "source.imported", f"Imported {created} sources ({skipped} duplicates skipped, {len(errors)} errors)",
            actor=current, entity_type="source")
     db.commit()
     return {"created": created, "skipped": skipped, "errors": errors}
+
+
+@router.get("/sources/packs")
+def list_source_packs(_: CurrentUser = Depends(require(P.READ))):
+    """Bundled lists of public feeds (verified when the pack was built) that can be added in one step."""
+    return list_packs()
+
+
+@router.post("/sources/packs/{pack_id}/import")
+def import_source_pack(pack_id: str, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.SOURCES_WRITE))):
+    entries = load_pack(pack_id)
+    if entries is None:
+        raise not_found("Source pack")
+    result = import_entries(db, entries)
+    record(db, "source.pack_imported",
+           f"Added source pack {pack_id}: {result['created']} sources ({result['skipped']} already present, "
+           f"{len(result['errors'])} errors)", actor=current, entity_type="source")
+    db.commit()
+    return result
 
 
 @router.post("/sources/bulk")

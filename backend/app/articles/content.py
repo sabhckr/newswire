@@ -112,14 +112,15 @@ PREVIEW_CSS = """
 @media (prefers-color-scheme: dark) { :root { --fg:#ece8e0; --muted:#9aa3b2; --rule:#2c3440; --link:#7ea6ff; --bg:#14191f; } }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
-body { font-family: "Source Serif 4", "Source Serif Pro", Georgia, Cambria, "Times New Roman", serif;
+body { font-family: "Source Serif 4", "Source Serif Pro", Georgia, Cambria, "Times New Roman",
+       "Noto Serif Bengali", SolaimanLipi, "Kohinoor Bangla", "Bangla Sangam MN", "Nirmala UI", Vrinda, serif;
        font-size: 19px; line-height: 1.65; padding: 40px 20px 64px; }
 .nw-article { max-width: 700px; margin: 0 auto; }
 .nw-article header h1 { font-size: 2.1em; line-height: 1.15; margin: 0 0 .35em; letter-spacing: -0.01em; }
 .nw-subtitle { font-size: 1.15em; color: var(--muted); margin: 0 0 1.2em; }
 .nw-featured { margin: 1.4em 0; }
 .nw-featured img, .nw-body img { max-width: 100%; height: auto; display: block; border-radius: 4px; }
-figcaption { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: var(--muted); margin-top: 6px; }
+figcaption { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali", "Hind Siliguri", SolaimanLipi, "Kohinoor Bangla", "Nirmala UI", sans-serif; font-size: 13px; color: var(--muted); margin-top: 6px; }
 .nw-credit { opacity: .9; }
 .nw-body h2 { font-size: 1.35em; margin: 1.6em 0 .5em; }
 .nw-body h3 { font-size: 1.15em; margin: 1.4em 0 .4em; }
@@ -127,7 +128,7 @@ figcaption { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", s
 .nw-body pre { background: rgba(127,127,127,.12); padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 14px; }
 a { color: var(--link); }
 hr { border: 0; border-top: 1px solid var(--rule); margin: 2em 0; }
-.nw-credits, .nw-sources { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px;
+.nw-credits, .nw-sources { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali", "Hind Siliguri", SolaimanLipi, "Kohinoor Bangla", "Nirmala UI", sans-serif; font-size: 14px;
                            border-top: 1px solid var(--rule); margin-top: 2.2em; padding-top: 1em; color: var(--muted); }
 .nw-credits h2, .nw-sources h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 .6em; }
 .nw-credits ul, .nw-sources ul { padding-left: 1.1em; margin: 0; }
@@ -137,8 +138,11 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 2em 0; }
 
 def preview_document(article: Article) -> str:
     """A complete HTML document (serif reading layout) for the editor's preview iframe."""
+    # Articles have no language field; Bangla in the headline or body is enough to tell.
+    sample = f"{article.headline} {(article.body_html or '')[:4000]}"
+    lang = "bn" if sum("\u0980" <= ch <= "\u09ff" for ch in sample) > 20 else "en"
     return (
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        f"<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>{html.escape(article.headline)} \u2014 preview</title><style>{PREVIEW_CSS}</style></head>"
         f"<body>{render_article_html(article, for_preview=True)}</body></html>"

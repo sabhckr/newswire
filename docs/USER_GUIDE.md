@@ -7,7 +7,8 @@ A walk through NEWSWIRE for editors and researchers. What you can do depends on 
 
 * The **sidebar** lists every area. On a phone it opens from the ☰ button.
 * **Search** (header, or ⌘K / Ctrl+K) looks through news, headlines, clusters, articles and
-  sources at once, and doubles as a command palette for jumping to pages.
+  sources at once, and doubles as a command palette for jumping to pages. Bangla words find their
+  inflected forms (`ঢাকা` finds `ঢাকায়` and `ঢাকার`); put `-` before a word to exclude it.
 * **Go-to keys:** press `g` then a letter: `o` Overview, `l` Live News, `h` My Headlines,
   `r` Research, `c` Clusters, `s` Sources, `i` Images, `a` Articles, `p` Publishing,
   `y` Analytics, `v` Activity, `,` Settings. On the Headlines and Articles lists, `n` creates a
@@ -31,6 +32,22 @@ The feeds NEWSWIRE collects from. Only add feeds you are allowed to monitor.
   what it would collect, without storing anything. Then fill in the publisher, where the
   publisher is based (this is never treated as where stories happen), language, category,
   polling interval and priority. For JSON APIs, map the fields (title, link, date, summary).
+* **Find feeds on a website:** in *Add source*, type a newspaper's address and press **Find
+  feeds**. NEWSWIRE reads the feed links on its home page and the news sitemaps listed in its
+  robots.txt, tests each one and lists those that work with their item count, newest date and a
+  few sample headlines. If none works, it tries the site's other sitemaps: a sitemap that lists
+  only addresses is offered as *headlines from story pages*, with the headlines two of its
+  newest pages would give. A feed marked *not updated recently* has had nothing new for three
+  days. **Use** fills in the form (and turns on page metadata lookup when it is needed).
+* **Sitemaps** work as sources for publishers without RSS: choose the *Sitemap* format. A
+  sitemap index is followed to its newest news sitemap. A Google News sitemap carries headlines;
+  a plain sitemap needs *page metadata lookup*, which reads each new story's page for its
+  headline (up to 10 per fetch).
+* **Source packs:** ready-made lists of public feeds. *Bangladeshi newspapers* adds 68 feeds
+  (57 Bangla, 11 English) from national and regional papers, online papers, TV news sites, BSS,
+  BBC News Bangla and DW Bangla. Feeds you already have are skipped, and each added source can be edited or
+  disabled like any other. [KNOWN_ISSUES.md](KNOWN_ISSUES.md#bangladeshi-sources) lists the
+  papers that could not be included and why.
 * **Import / Export** a list as JSON, or import OPML from another feed reader.
 * Each source's page shows health over 24 hours, 7 days and 30 days, every fetch with its HTTP
   status and timing, the configuration and its latest stories. **Fetch now**, **Disable** and
@@ -58,7 +75,9 @@ without moving the list under you, or switch on **Auto-refresh**.
 A headline (assignment) is a story you are researching. NEWSWIRE scores every new report
 against every active headline. [MATCHING.md](MATCHING.md) explains the scoring.
 
-* **Keywords:** *primary* terms are the core of the story. *Synonyms* are other names and
+* **Keywords** can be in any language. Bangla keywords match their inflected forms (`ঢাকা`
+  finds `ঢাকায়` and `ঢাকার`). To catch Bangla and English reports of the same story, add the
+  keywords in both languages. *Primary* terms are the core of the story. *Synonyms* are other names and
   spellings. *Required phrases* must appear. *Secondary* terms only add context. *Excluded*
   terms reject a report. Each chip can have its own points.
 * **Places:** countries, regions, cities or custom areas. *Boost* adds points. *Require* only
@@ -127,7 +146,7 @@ out, remove or add reports, lock it so automatic grouping leaves it alone, and a
 
 ## Analytics
 
-Reports for any period (in UTC days): news volume and duplicates, coverage by country,
+Reports for any period (in days of your time zone): news volume and duplicates, coverage by country,
 publishers, categories, editorial throughput, precision per headline, source reliability and
 publishing activity. Each has a **CSV** button.
 

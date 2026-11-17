@@ -1,0 +1,115 @@
+# Bangla names for built-in continents, countries and cities, as used by Bangladeshi
+# newspapers. Merged into the built-in entities' alternative names on every start.
+#
+# continent|<code>|Bangla names (;)
+# country|<ISO2>|Bangla names (;)|Bangla demonyms (;)
+# city|<ISO2>|<English name as in countries.psv>|Bangla names (;)
+#
+# A leading ~ marks a name that is ambiguous on its own (low confidence).
+continent|AS|এশিয়া
+continent|EU|ইউরোপ
+continent|AF|আফ্রিকা
+continent|NA|উত্তর আমেরিকা
+continent|SA|দক্ষিণ আমেরিকা
+continent|OC|ওশেনিয়া
+continent|AN|অ্যান্টার্কটিকা
+country|BD|বাংলাদেশ|বাংলাদেশি;বাংলাদেশী
+country|IN|ভারত|ভারতীয়
+country|MM|মিয়ানমার;মায়ানমার|
+country|CN|চীন|চীনা
+country|PK|পাকিস্তান|পাকিস্তানি
+country|US|যুক্তরাষ্ট্র;মার্কিন যুক্তরাষ্ট্র;~আমেরিকা|মার্কিন
+country|GB|যুক্তরাজ্য;ব্রিটেন|ব্রিটিশ
+country|RU|রাশিয়া|রুশ
+country|UA|ইউক্রেন|ইউক্রেনীয়
+country|IL|ইসরায়েল;ইসরাইল|ইসরায়েলি;ইসরাইলি
+country|PS|ফিলিস্তিন|ফিলিস্তিনি
+country|IR|ইরান|ইরানি
+country|SA|সৌদি আরব|সৌদি
+country|JP|জাপান|জাপানি
+country|NP|নেপাল|নেপালি
+country|BT|ভুটান|
+country|LK|শ্রীলঙ্কা|
+country|MV|মালদ্বীপ|
+country|MY|মালয়েশিয়া|
+country|SG|সিঙ্গাপুর|
+country|AE|সংযুক্ত আরব আমিরাত;আমিরাত|
+country|QA|কাতার|
+country|KW|কুয়েত|
+country|OM|ওমান|
+country|BH|বাহরাইন|
+country|JO|জর্ডান|
+country|TR|তুরস্ক|তুর্কি
+country|DE|জার্মানি|জার্মান
+country|FR|ফ্রান্স|ফরাসি
+country|IT|ইতালি|
+country|ES|স্পেন|
+country|NL|নেদারল্যান্ডস|
+country|SE|সুইডেন|
+country|CH|সুইজারল্যান্ড|
+country|BE|বেলজিয়াম|
+country|CA|কানাডা|
+country|AU|অস্ট্রেলিয়া|
+country|NZ|নিউজিল্যান্ড|
+country|AF|আফগানিস্তান|
+country|ID|ইন্দোনেশিয়া|
+country|TH|থাইল্যান্ড|
+country|VN|ভিয়েতনাম|
+country|PH|ফিলিপাইন|
+country|KR|দক্ষিণ কোরিয়া|
+country|KP|উত্তর কোরিয়া|
+country|EG|মিসর;মিশর|
+country|SY|সিরিয়া|
+country|IQ|ইরাক|
+country|LB|লেবানন|
+country|YE|ইয়েমেন|
+country|LY|লিবিয়া|
+country|SD|সুদান|
+country|ZA|দক্ষিণ আফ্রিকা|
+country|BR|ব্রাজিল|
+country|AR|আর্জেন্টিনা|
+country|GR|গ্রিস|
+country|PL|পোল্যান্ড|
+country|PT|পর্তুগাল|
+country|MX|মেক্সিকো|
+city|IN|New Delhi|নয়াদিল্লি;নয়া দিল্লি
+city|IN|Delhi|দিল্লি
+city|IN|Kolkata|কলকাতা
+city|IN|Mumbai|মুম্বাই
+city|IN|Chennai|চেন্নাই
+city|IN|Guwahati|গুয়াহাটি
+city|US|Washington|ওয়াশিংটন
+city|US|New York|নিউইয়র্ক;নিউ ইয়র্ক
+city|GB|London|লন্ডন
+city|CN|Beijing|বেইজিং
+city|RU|Moscow|মস্কো
+city|JP|Tokyo|টোকিও
+city|MM|Yangon|ইয়াঙ্গুন
+city|MM|Naypyidaw|নেপিডো
+city|MM|Sittwe|সিত্তে
+city|PK|Islamabad|ইসলামাবাদ
+city|PK|Karachi|করাচি
+city|PK|Lahore|লাহোর
+city|NP|Kathmandu|কাঠমান্ডু
+city|AE|Dubai|দুবাই
+city|AE|Abu Dhabi|আবুধাবি
+city|SA|Riyadh|রিয়াদ
+city|SA|Mecca|মক্কা
+city|SA|Jeddah|জেদ্দা
+city|SA|Medina|মদিনা
+city|QA|Doha|দোহা
+city|CH|Geneva|জেনেভা
+city|FR|Paris|প্যারিস
+city|DE|Berlin|বার্লিন
+city|MY|Kuala Lumpur|কুয়ালালামপুর
+city|TH|Bangkok|ব্যাংকক
+city|ID|Jakarta|জাকার্তা
+city|IR|Tehran|তেহরান
+city|AF|Kabul|কাবুল
+city|TR|Ankara|আঙ্কারা
+city|TR|Istanbul|ইস্তাম্বুল
+city|PS|Gaza|গাজা
+city|UA|Kyiv|কিয়েভ;কিইভ
+city|IL|Jerusalem|জেরুজালেম
+city|LK|Colombo|কলম্বো
+city|BT|Thimphu|থিম্পু

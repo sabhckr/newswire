@@ -59,6 +59,16 @@ def is_allowed(client: httpx.Client, url: str) -> tuple[bool, str | None]:
     return False, "Disallowed by the publisher's robots.txt"
 
 
+def sitemaps(client: httpx.Client, url: str) -> list[str]:
+    """Sitemap URLs the publisher lists in robots.txt (reads the same cache as is_allowed)."""
+    is_allowed(client, url)
+    parts = urlsplit(url)
+    with _lock:
+        cached = _cache.get(f"{parts.scheme}://{parts.netloc}")
+    parser = cached[1] if cached else None
+    return list(parser.site_maps() or []) if parser is not None else []
+
+
 def clear_cache() -> None:
     with _lock:
         _cache.clear()

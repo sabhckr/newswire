@@ -24,30 +24,52 @@ from app.models import (
 )
 
 
-def day_bucket(db: Session, col):
-    if is_postgres(db):
-        return func.to_char(func.date_trunc("day", col), "YYYY-MM-DD")
-    return func.strftime("%Y-%m-%d", col)
+def _zone(tz_name: str | None):
+    """The viewer's IANA time zone, or UTC when absent or unknown."""
+    try:
+        return ZoneInfo(tz_name) if tz_name else timezone.utc
+    except Exception:  # noqa: BLE001 - unknown names fall back to UTC
+        return timezone.utc
 
 
-def hour_bucket(db: Session, col):
+def zone_name(tz_name: str | None) -> str:
+    zone = _zone(tz_name)
+    return getattr(zone, "key", "UTC")
+
+
+def _sqlite_shift(tz_name: str | None) -> str:
+    # SQLite has no time zone database: use the zone's current UTC offset (development only).
+    offset = datetime.now(_zone(tz_name)).utcoffset() or timedelta(0)
+    return f"{int(offset.total_seconds() // 60):+d} minutes"
+
+
+def day_bucket(db: Session, col, tz: str | None = None):
+    """Calendar day of a timestamp in the given time zone (UTC by default)."""
     if is_postgres(db):
-        return func.to_char(func.date_trunc("hour", col), 'YYYY-MM-DD"T"HH24:00')
-    return func.strftime("%Y-%m-%dT%H:00", col)
+        return func.to_char(func.date_trunc("day", func.timezone(zone_name(tz), col)), "YYYY-MM-DD")
+    return func.strftime("%Y-%m-%d", col, _sqlite_shift(tz))
+
+
+def hour_bucket(db: Session, col, tz: str | None = None):
+    if is_postgres(db):
+        return func.to_char(func.date_trunc("hour", func.timezone(zone_name(tz), col)), 'YYYY-MM-DD"T"HH24:00')
+    return func.strftime("%Y-%m-%dT%H:00", col, _sqlite_shift(tz))
 
 
 def start_of_today(tz_name: str | None) -> datetime:
-    try:
-        tz = ZoneInfo(tz_name) if tz_name else timezone.utc
-    except Exception:
-        tz = timezone.utc
+    tz = _zone(tz_name)
     now_local = datetime.now(tz)
     return datetime.combine(now_local.date(), time.min, tzinfo=tz).astimezone(timezone.utc)
 
 
-def date_range(start: date | None, end: date | None, default_days: int = 30) -> tuple[datetime, datetime]:
-    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc) if end else utcnow()
-    start_dt = datetime.combine(start, time.min, tzinfo=timezone.utc) if start else end_dt - timedelta(days=default_days)
+def date_range(start: date | None, end: date | None, default_days: int = 30, tz: str | None = None) -> tuple[datetime, datetime]:
+    """Whole calendar days in the viewer's time zone, as UTC instants."""
+    zone = _zone(tz)
+    end_dt = datetime.combine(end, time.max, tzinfo=zone).astimezone(timezone.utc) if end else utcnow()
+    start_dt = (
+        datetime.combine(start, time.min, tzinfo=zone).astimezone(timezone.utc)
+        if start else end_dt - timedelta(days=default_days)
+    )
     return start_dt, end_dt
 
 
@@ -102,9 +124,9 @@ def overview(db: Session, tz: str | None = None) -> dict:
     }
 
 
-def news_volume(db: Session, start: datetime, end: datetime) -> list[dict]:
+def news_volume(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
     hourly = (end - start) <= timedelta(days=2)
-    bucket = (hour_bucket if hourly else day_bucket)(db, NewsItem.retrieved_at)
+    bucket = (hour_bucket if hourly else day_bucket)(db, NewsItem.retrieved_at, tz)
     rows = db.execute(
         select(bucket.label("bucket"), func.count().label("items"),
                func.sum(case((NewsItem.is_duplicate.is_(True), 1), else_=0)).label("duplicates"))
@@ -113,7 +135,7 @@ def news_volume(db: Session, start: datetime, end: datetime) -> list[dict]:
     return [{"bucket": r.bucket, "items": int(r.items), "duplicates": int(r.duplicates or 0)} for r in rows]
 
 
-def by_country(db: Session, start: datetime, end: datetime, role: str | None = None, limit: int = 50) -> list[dict]:
+def by_country(db: Session, start: datetime, end: datetime, role: str | None = None, limit: int = 50, tz: str | None = None) -> list[dict]:
     roles = [role] if role else ["mentioned", "event", "article", "editor"]
     rows = db.execute(
         select(NewsGeography.country_code, func.count(distinct(NewsGeography.news_item_id)).label("items"))
@@ -125,7 +147,7 @@ def by_country(db: Session, start: datetime, end: datetime, role: str | None = N
     return [{"country_code": r[0], "items": int(r[1])} for r in rows]
 
 
-def by_publisher(db: Session, start: datetime, end: datetime, limit: int = 50) -> list[dict]:
+def by_publisher(db: Session, start: datetime, end: datetime, limit: int = 50, tz: str | None = None) -> list[dict]:
     rows = db.execute(
         select(Source.publisher, func.count(NewsItem.id).label("items"),
                func.sum(case((NewsItem.is_duplicate.is_(True), 1), else_=0)).label("duplicates"),
@@ -137,7 +159,7 @@ def by_publisher(db: Session, start: datetime, end: datetime, limit: int = 50) -
     return [{"publisher": r[0], "items": int(r[1]), "duplicates": int(r[2] or 0), "latest": r[3]} for r in rows]
 
 
-def by_category(db: Session, start: datetime, end: datetime) -> list[dict]:
+def by_category(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
     rows = db.execute(
         select(Category.name, func.count(distinct(NewsItem.id)))
         .join(source_categories, source_categories.c.category_id == Category.id)
@@ -157,7 +179,7 @@ def by_category(db: Session, start: datetime, end: datetime) -> list[dict]:
     return out
 
 
-def assignment_performance(db: Session, start: datetime, end: datetime) -> list[dict]:
+def assignment_performance(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
     rows = db.execute(
         select(
             EditorialAssignment.id, EditorialAssignment.headline, EditorialAssignment.status,
@@ -186,7 +208,7 @@ def assignment_performance(db: Session, start: datetime, end: datetime) -> list[
     return out
 
 
-def source_reliability(db: Session, start: datetime, end: datetime) -> list[dict]:
+def source_reliability(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
     rows = db.execute(
         select(
             Source.id, Source.name, Source.publisher, Source.is_active, Source.consecutive_failures,
@@ -213,8 +235,8 @@ def source_reliability(db: Session, start: datetime, end: datetime) -> list[dict
     return out
 
 
-def publication_activity(db: Session, start: datetime, end: datetime) -> list[dict]:
-    bucket = day_bucket(db, PublishingJob.completed_at)
+def publication_activity(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
+    bucket = day_bucket(db, PublishingJob.completed_at, tz)
     rows = db.execute(
         select(bucket, func.sum(case((PublishingJob.status == "succeeded", 1), else_=0)),
                func.sum(case((PublishingJob.status == "failed", 1), else_=0)))
@@ -223,10 +245,10 @@ def publication_activity(db: Session, start: datetime, end: datetime) -> list[di
     return [{"bucket": r[0], "succeeded": int(r[1] or 0), "failed": int(r[2] or 0)} for r in rows]
 
 
-def editorial_throughput(db: Session, start: datetime, end: datetime) -> list[dict]:
-    created_b = day_bucket(db, Article.created_at)
-    published_b = day_bucket(db, Article.published_at)
-    reviewed_b = day_bucket(db, AssignmentMatch.reviewed_at)
+def editorial_throughput(db: Session, start: datetime, end: datetime, tz: str | None = None) -> list[dict]:
+    created_b = day_bucket(db, Article.created_at, tz)
+    published_b = day_bucket(db, Article.published_at, tz)
+    reviewed_b = day_bucket(db, AssignmentMatch.reviewed_at, tz)
     data: dict[str, dict] = {}
 
     def put(rows, key):

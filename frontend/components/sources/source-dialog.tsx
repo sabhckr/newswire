@@ -25,7 +25,7 @@ export function SourceDialog({
           description={
             source
               ? "Changing the feed URL clears cached validators and schedules an immediate fetch."
-              : "Any public RSS, Atom or JSON feed. Test it first to see what will be collected."
+              : "Any public RSS, Atom or JSON feed, or a news sitemap. Test it first to see what will be collected."
           }
         >
           <SourceForm

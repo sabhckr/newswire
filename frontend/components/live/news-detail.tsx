@@ -183,7 +183,7 @@ export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (i
             Read at {hostOf(item.url)} <ExternalLink className="h-3 w-3" aria-hidden />
           </a>
         </div>
-        {item.summary ? <p className="mt-3 whitespace-pre-line text-sm leading-6">{item.summary}</p> : (
+        {item.summary ? <p lang={item.language ?? undefined} className="mt-3 whitespace-pre-line text-sm leading-6">{item.summary}</p> : (
           <p className="mt-3 text-sm text-muted">The feed did not include a summary.</p>
         )}
         {categories.length ? (

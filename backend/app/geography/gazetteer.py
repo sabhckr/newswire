@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.text import _QUOTES, _is_word_char, fold
+from app.core.text import _QUOTES, _is_word_char, fold, forms, is_bangla
 from app.models import GeographicEntity
 
 # Place names that are also everyday English words: counted only when capitalised and
@@ -24,6 +24,28 @@ COMMON_WORD_PLACES = frozenset(
         "chester", "aden", "kandy", "salvador", "georgetown", "kingston", "santiago", "cali",
     }
 )
+
+
+# Bangla place names that are also ordinary words, with the neighbouring words that show the
+# ordinary meaning. "ঢাকা" is also "covered": "কুয়াশায় ঢাকা পড়েছে" (covered in fog).
+_BN_NOT_PLACE = {
+    fold("ঢাকা"): {
+        "next": tuple(fold(w) for w in ("পড়", "থাক", "ছিল", "রয়েছে")),
+        "prev": tuple(fold(w) for w in ("কুয়াশা", "মেঘ", "বরফ", "ধুলা", "ধোঁয়া", "পানি", "আবরণ")),
+    },
+}
+
+
+def _bn_ordinary_word(toks: list[tuple[str, str]], i: int, length: int) -> bool:
+    """True when a one-word Bangla name at position i is used in its ordinary sense."""
+    if length != 1:
+        return False
+    rule = _BN_NOT_PLACE.get(toks[i][1])
+    if rule is None:
+        return False
+    nxt = toks[i + 1][1] if i + 1 < len(toks) else ""
+    prev = toks[i - 1][1] if i > 0 else ""
+    return nxt.startswith(rule["next"]) or prev.startswith(rule["prev"])
 
 
 @dataclass
@@ -157,6 +179,11 @@ class Gazetteer:
         """Longest-match-first scan of a text for known place names."""
         toks = raw_tokens(text or "")
         n = len(toks)
+        # Bangla attaches case endings to the name itself ("ঢাকায়", "চট্টগ্রামের"), so the
+        # last word of a candidate name may also match by its uninflected forms.
+        inflected = [
+            sorted(forms(f) - {f}, key=lambda x: (-len(x), x)) if is_bangla(f) else [] for _, f in toks
+        ]
         out: list[Mention] = []
         i = 0
         while i < n:
@@ -168,6 +195,11 @@ class Gazetteer:
                 if entries is None:
                     entries = self.by_name.get(folded_key)
                 if not entries:
+                    for alt in inflected[i + length - 1]:
+                        entries = self.by_name.get(folded_key[:-1] + (alt,))
+                        if entries:
+                            break
+                if not entries or _bn_ordinary_word(toks, i, length):
                     continue
                 first_raw = toks[i][0]
                 capitalised = first_raw[:1].isupper() or not first_raw[:1].isalpha() or not first_raw.isascii()

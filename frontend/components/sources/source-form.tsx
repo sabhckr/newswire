@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { api, errorMessage } from "@/lib/api";
 import type { CategoryOut, SourceOut } from "@/lib/types";
 
+import { FeedFinder, type DiscoverResult, type FeedCandidate } from "./feed-finder";
 import { ProbeResultPanel, type ProbeResult } from "./probe-result";
 
 export const INTERVALS: { value: number; label: string }[] = [
@@ -55,7 +56,7 @@ const optionalUrl = z
 const schema = z.object({
   name: z.string().trim().min(1, "Give the source a name").max(200),
   publisher: z.string().trim().min(1, "Who publishes it?").max(200),
-  source_type: z.enum(["rss", "atom", "json"]),
+  source_type: z.enum(["rss", "atom", "json", "sitemap"]),
   feed_url: z.string().trim().min(8, "Enter the feed URL").max(2048).regex(/^https?:\/\/\S+$/i, "Enter a full http(s) URL"),
   website_url: optionalUrl,
   country_code: z
@@ -155,6 +156,20 @@ export function SourceForm({
     onError: (e) => toast.error(errorMessage(e)),
   });
 
+  const applyCandidate = (c: FeedCandidate, r: DiscoverResult) => {
+    const opts = { shouldDirty: true, shouldValidate: true } as const;
+    setValue("feed_url", c.url, opts);
+    setValue("source_type", c.source_type, opts);
+    if (!getValues("website_url")) setValue("website_url", r.site, opts);
+    const siteName = (r.site_title ?? "").split(/\s+[|\-–—:]\s+/)[0].trim().slice(0, 200);
+    if (siteName && !getValues("publisher")) setValue("publisher", siteName, opts);
+    if (!getValues("name")) setValue("name", (c.title || siteName).slice(0, 200), opts);
+    if (c.language && !getValues("language")) setValue("language", c.language.slice(0, 16), opts);
+    if (c.needs_page_metadata) setValue("extract_page_metadata", true, opts);
+    setProbe(null);
+    toast.success("Feed filled in. Check the publisher details, then save.");
+  };
+
   const addCategory = useMutation({
     mutationFn: (name: string) => api<CategoryOut>("/categories", { body: { name } }),
     onSuccess: (c) => {
@@ -206,9 +221,11 @@ export function SourceForm({
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5" noValidate>
       {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
+      {!source ? <FeedFinder respectRobots={watch("respect_robots")} onUse={applyCandidate} /> : null}
+
       <fieldset className="grid gap-3 sm:grid-cols-[1fr_140px]">
         <legend className="sr-only">Feed</legend>
-        <Field label="Feed URL" htmlFor="sf-feed" error={errors.feed_url?.message} required hint="RSS, Atom, JSON Feed or a public JSON API endpoint">
+        <Field label="Feed URL" htmlFor="sf-feed" error={errors.feed_url?.message} required hint="RSS, Atom, JSON Feed, a news sitemap or a public JSON API endpoint">
           <Input id="sf-feed" inputMode="url" placeholder="https://example.com/rss.xml" {...register("feed_url")} aria-invalid={!!errors.feed_url} />
         </Field>
         <Field label="Format" htmlFor="sf-type">
@@ -216,6 +233,7 @@ export function SourceForm({
             <option value="rss">RSS</option>
             <option value="atom">Atom</option>
             <option value="json">JSON Feed / API</option>
+            <option value="sitemap">Sitemap</option>
           </Select>
         </Field>
         <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
@@ -230,6 +248,14 @@ export function SourceForm({
           </div>
         ) : null}
       </fieldset>
+
+      {type === "sitemap" ? (
+        <InlineAlert tone="info">
+          For publishers without RSS. A news sitemap lists the last two days of articles with their headlines. A
+          sitemap index is followed to its newest news sitemap. Plain sitemaps have no headlines: switch on
+          page metadata below so each new article&apos;s title is read from its page (up to 10 per fetch).
+        </InlineAlert>
+      ) : null}
 
       {type === "json" ? (
         <fieldset className="rounded-lg border border-border p-3">
@@ -320,7 +346,7 @@ export function SourceForm({
                 id="sf-meta"
                 checked={field.value}
                 onCheckedChange={field.onChange}
-                label="Fetch each article page for canonical URL, image and description (slower; one extra request per new item)"
+                label="Fetch each new article page for its canonical URL, image, description, and title when the feed has none (slower; one extra request per new item, up to 10 per fetch)"
               />
             )}
           />

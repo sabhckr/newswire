@@ -4,7 +4,7 @@ A self-hosted newsroom intelligence and publishing platform that runs without AI
 paid services.
 
 You tell NEWSWIRE which headlines and topics you are researching. It watches the RSS, Atom and
-JSON feeds you authorise, matches each incoming report to your assignments with transparent
+JSON feeds and news sitemaps you authorise, matches each incoming report to your assignments with transparent
 rules, groups related coverage, flags duplicates, works out which places a story is about, and
 finds openly licensed images. You write original articles in the built-in editor. They move
 through review and approval, and you publish them yourself to the built-in public API, a
@@ -19,6 +19,11 @@ WordPress site or any website that accepts a signed webhook.
   licences block it.
 * **Polite collection.** NEWSWIRE honours robots.txt, uses conditional requests, backs off
   failing feeds and never bypasses paywalls or logins.
+* **Built for Bangladeshi news.** Bangla and English matching that understands Bangla
+  inflections (`ঢাকা` finds `ঢাকায়`), every division and district of Bangladesh with Bangla
+  names, Bangla datelines and correspondent credits, news-sitemap support for papers without
+  RSS, and a source pack of Bangladeshi newspapers' public feeds. It works for news from
+  anywhere; Bangladesh simply has the deepest coverage.
 
 ## Contents
 
@@ -101,8 +106,10 @@ NEWSWIRE_SECRET_KEY=dev backend/.venv/bin/python scripts/gen_types.py
 
 ## First steps after installing
 
-1. **Sources.** Add the RSS/Atom/JSON feeds you are allowed to monitor. Use *Test* before
-   saving to see what the feed returns. The worker polls each source on its own interval.
+1. **Sources.** Add the feeds you are allowed to monitor: *Source packs* adds the bundled
+   Bangladeshi newspapers in one step, and *Add source → Find feeds* finds the feeds and news
+   sitemaps of any other site. Use *Test* before saving to see what a feed returns. The worker
+   polls each source on its own interval.
 2. **My Headlines.** Create an assignment: the headline you are researching, its primary
    keywords, synonyms, required and excluded phrases, and optional countries, sources,
    category and language.

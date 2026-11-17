@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import get_or_404, news_out
 from app.core.db import get_db, is_postgres, utcnow
+from app.core.text import STOPWORDS, bn_stem, is_bangla, tokens
 from app.core.pagination import PageParams
 from app.geography.gazetteer import get_gazetteer
 from app.models import (
@@ -36,12 +37,82 @@ router = APIRouter(prefix="/news", tags=["news"])
 FTS_VECTOR_SQL = "to_tsvector('simple'::regconfig, coalesce(news_items.title, '') || ' ' || coalesce(news_items.summary, ''))"
 
 
+# য়, ড় and ঢ় have a one-character form and a letter-plus-nukta form; feeds use both.
+_NUKTA_PAIRS = (("\u09af\u09bc", "\u09df"), ("\u09a1\u09bc", "\u09dc"), ("\u09a2\u09bc", "\u09dd"))
+_TO_BN_DIGITS = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+
+
+def _spellings(word: str) -> set[str]:
+    out = {word}
+    composed = word
+    for decomposed, single in _NUKTA_PAIRS:
+        composed = composed.replace(decomposed, single)
+    out.add(composed)
+    if word.isdigit():
+        out.add(word.translate(_TO_BN_DIGITS))
+    return out
+
+
+def bangla_search_terms(q: str) -> list[tuple[bool, list[tuple[str, bool]]]]:
+    """Search words of a query that contains Bangla: [(negated, [(spelling, prefix), ...]), ...].
+
+    Bangla adds case endings to the word itself (ঢাকায়, ঢাকার), so a Bangla word also matches
+    words that start with it or with its stem. Common function words are dropped unless the
+    query has nothing else."""
+    groups: list[tuple[bool, list[tuple[str, bool]]]] = []
+    for chunk in q.split():
+        negated = chunk.startswith("-") and len(chunk) > 1
+        for word in tokens(chunk):
+            variants: dict[str, bool] = {}
+            if is_bangla(word):
+                for base in {word, bn_stem(word)}:
+                    for sp in _spellings(base):
+                        variants[sp] = variants.get(sp, False) or len(base) >= 3
+            else:
+                for sp in _spellings(word):
+                    variants[sp] = False
+            groups.append((negated, sorted(variants.items())))
+    content = [g for g in groups if not all(sp in STOPWORDS for sp, _ in g[1])]
+    return content if any(not neg for neg, _ in content) else groups
+
+
+def _ts_lexeme(word: str, prefix: bool) -> str:
+    return "'" + word.replace("\\", "\\\\").replace("'", "''") + "'" + (":*" if prefix else "")
+
+
+def bangla_tsquery(q: str) -> str | None:
+    groups = bangla_search_terms(q)
+    if not any(not neg for neg, _ in groups):
+        return None
+    parts = []
+    for neg, variants in groups:
+        alt = " | ".join(_ts_lexeme(w, p) for w, p in variants)
+        parts.append(("!" if neg else "") + f"({alt})")
+    return " & ".join(parts)
+
+
 def fts_condition(db: Session, q: str):
-    """PostgreSQL full-text search (simple config, multilingual); LIKE fallback on SQLite."""
+    """PostgreSQL full-text search (simple config, multilingual); LIKE fallback on SQLite.
+
+    Queries with Bangla words use prefix matching on each word and its stem (see
+    `bangla_search_terms`); other queries use web-search syntax ("phrases", OR, -exclude)."""
+    bangla = is_bangla(q) and bool(bangla_search_terms(q))
     if is_postgres(db):
         # Literal SQL so the expression matches the GIN index `ix_news_items_fts` exactly.
         vector = literal_column(FTS_VECTOR_SQL)
-        return vector.op("@@")(func.websearch_to_tsquery(literal_column("'simple'::regconfig"), q))
+        config = literal_column("'simple'::regconfig")
+        tsq = bangla_tsquery(q) if bangla else None
+        if tsq:
+            return vector.op("@@")(func.to_tsquery(config, tsq))
+        return vector.op("@@")(func.websearch_to_tsquery(config, q))
+    if bangla:
+        conds = []
+        for neg, variants in bangla_search_terms(q):
+            cols = (func.coalesce(NewsItem.title, ""), func.coalesce(NewsItem.summary, ""))  # NULL would void NOT
+            likes = [c.ilike(f"%{w}%") for w, _ in variants for c in cols]
+            cond = or_(*likes)
+            conds.append(~cond if neg else cond)
+        return and_(*conds)
     like = f"%{q}%"
     return or_(NewsItem.title.ilike(like), NewsItem.summary.ilike(like))
 

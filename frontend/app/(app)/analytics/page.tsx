@@ -14,7 +14,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Table, TD, TH, THead, TR } from "@/components/ui/table";
 import { Time } from "@/components/ui/time";
 import { api, downloadUrl } from "@/lib/api";
-import { flag, formatDuration, formatNumber } from "@/lib/utils";
+import { browserTimeZone, flag, formatDuration, formatNumber } from "@/lib/utils";
 
 type ReportName = "volume" | "countries" | "publishers" | "categories" | "assignments" | "sources" | "publications" | "throughput";
 
@@ -31,14 +31,14 @@ const PRESETS = [
 function useReport<T>(name: ReportName, start: string, end: string) {
   return useQuery({
     queryKey: ["analytics", name, start, end],
-    queryFn: () => api<{ rows: T[] }>(`/analytics/reports/${name}`, { query: { start, end } }),
+    queryFn: () => api<{ rows: T[] }>(`/analytics/reports/${name}`, { query: { start, end, tz: browserTimeZone() } }),
   });
 }
 
 function CsvLink({ name, start, end }: { name: ReportName; start: string; end: string }) {
   return (
     <a
-      href={downloadUrl(`/analytics/reports/${name}`, { start, end, format: "csv" })}
+      href={downloadUrl(`/analytics/reports/${name}`, { start, end, format: "csv", tz: browserTimeZone() })}
       className="inline-flex h-7 items-center gap-1.5 rounded border border-border px-2 text-xs text-muted hover:bg-surface-2 hover:text-text"
       download
     >
@@ -97,7 +97,7 @@ export default function AnalyticsPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Analytics"
-        description="Every figure is counted from the database for the selected period (UTC days). Export any report as CSV."
+        description="Every figure is counted from the database for the selected period, in days of your own time zone. Export any report as CSV."
       />
       <div className="mb-4 flex flex-wrap items-end gap-2" role="group" aria-label="Reporting period">
         <Field label="Period" htmlFor="preset">

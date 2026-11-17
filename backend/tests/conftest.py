@@ -29,7 +29,7 @@ from app.collectors import robots  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.core.db import Base, SessionLocal, make_engine, set_engine  # noqa: E402
 from app.geography.gazetteer import invalidate_gazetteer  # noqa: E402
-from app.geography.seed import seed_builtin  # noqa: E402
+from app.geography.seed import seed_bangladesh, seed_builtin  # noqa: E402
 
 KEEP_TABLES = {"geographic_entities", "alembic_version"}
 
@@ -52,6 +52,7 @@ def engine():
     set_engine(eng)
     db = SessionLocal()
     seed_builtin(db)
+    seed_bangladesh(db)
     db.commit()
     db.close()
     yield eng
@@ -114,6 +115,10 @@ class FeedServer:
 
 @pytest.fixture()
 def feeds():
+    robots.clear_cache()  # each test's fake sites have their own robots.txt
+    from app.collectors import ingest
+
+    ingest._lookup_misses.clear()
     return FeedServer()
 
 
