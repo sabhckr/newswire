@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens: RGB channels so Tailwind opacity modifiers work (bg-accent/10). */
+:root {
+  --bg: 246 247 249;
+  --surface: 255 255 255;
+  --surface-2: 241 243 246;
+  --border: 224 228 234;
+  --text: 22 27 34;
+  --muted: 92 102 117;
+  --accent: 37 99 235;
+  --accent-fg: 255 255 255;
+  --success: 22 128 61;
+  --warning: 176 92 8;
+  --danger: 200 35 35;
+  --info: 37 99 235;
+  --chart-1: 37 99 235;
+  --chart-2: 13 148 136;
+  --chart-3: 217 119 6;
+  --chart-4: 147 51 234;
+  --chart-5: 220 38 38;
+  --chart-6: 100 116 139;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 13 17 23;
+  --surface: 20 25 33;
+  --surface-2: 28 34 44;
+  --border: 44 52 64;
+  --text: 236 232 224;
+  --muted: 146 155 170;
+  --accent: 104 151 255;
+  --accent-fg: 9 13 20;
+  --success: 80 200 124;
+  --warning: 232 172 72;
+  --danger: 244 106 106;
+  --info: 112 162 255;
+  --chart-1: 104 151 255;
+  --chart-2: 45 200 180;
+  --chart-3: 240 170 70;
+  --chart-4: 190 130 250;
+  --chart-5: 244 106 106;
+  --chart-6: 148 163 184;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-bg text-text antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body {
+    @apply text-sm;
+  }
+  *:focus-visible {
+    @apply outline-none ring-2 ring-accent/70 ring-offset-1 ring-offset-bg;
+  }
+  ::selection {
+    @apply bg-accent/25;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border)) transparent;
+  }
+  /* Article body inside the editor and preview */
+  .prose-article {
+    @apply text-[15px] leading-7;
+  }
+  .prose-article h2 { @apply mt-6 mb-2 text-lg font-semibold; }
+  .prose-article h3 { @apply mt-5 mb-2 text-base font-semibold; }
+  .prose-article p { @apply my-3; }
+  .prose-article ul { @apply my-3 list-disc pl-6; }
+  .prose-article ol { @apply my-3 list-decimal pl-6; }
+  .prose-article blockquote { @apply my-4 border-l-2 border-border pl-4 text-muted; }
+  .prose-article a { @apply text-accent underline underline-offset-2; }
+  .prose-article hr { @apply my-6 border-border; }
+  .prose-article code { @apply rounded bg-surface-2 px-1 font-mono text-[13px]; }
+  .prose-article .ProseMirror-focused { outline: none; }
+  .prose-article p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,18 @@
+# Bare-metal alternative to Docker. Copy to /etc/systemd/system/ and adjust paths.
+[Unit]
+Description=NEWSWIRE API
+After=network-online.target postgresql.service
+
+[Service]
+User=newswire
+WorkingDirectory=/opt/newswire/backend
+EnvironmentFile=/opt/newswire/.env
+ExecStartPre=/opt/newswire/backend/.venv/bin/python -m app.cli migrate
+ExecStart=/opt/newswire/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

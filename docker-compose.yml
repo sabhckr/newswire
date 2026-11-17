@@ -1,0 +1,85 @@
+# NEWSWIRE: one command to run the whole platform.
+#   cp .env.example .env   # then set NEWSWIRE_SECRET_KEY and POSTGRES_PASSWORD
+#   docker compose up -d --build
+#   open http://localhost:3000  (first visit creates the administrator)
+# Optional HTTPS reverse proxy:  NEWSWIRE_DOMAIN=news.example.org docker compose --profile proxy up -d
+
+name: newswire
+
+x-backend: &backend
+  build: ./backend
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    NEWSWIRE_DATABASE_URL: postgresql+psycopg://newswire:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/newswire
+    NEWSWIRE_STORAGE_DIR: /data
+  volumes:
+    - newswire-data:/data
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: newswire
+      POSTGRES_USER: newswire
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - newswire-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newswire -d newswire"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    <<: *backend
+    # Migrations run before the API starts; they are additive and never drop data silently.
+    command: ["sh", "-c", "python -m app.cli migrate && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    expose: ["8000"]
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEWSWIRE_BACKEND_URL: http://api:8000
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${NEWSWIRE_HTTP_PORT:-3000}:3000"
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    environment:
+      NEWSWIRE_DOMAIN: ${NEWSWIRE_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [web, api]
+
+volumes:
+  newswire-db:
+  newswire-data:
+  caddy-data:

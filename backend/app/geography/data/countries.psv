@@ -1,0 +1,208 @@
+# NEWSWIRE built-in gazetteer: countries, capitals and major cities (public factual data).
+# Columns: iso2|iso3|name|continent|capital|alt_names|cities|demonyms|ambiguous
+# Name lists are ';'-separated. Prefix '=' = case-sensitive exact alias (e.g. =US).
+# Prefix '~' = ambiguous alias, counted only when capitalised in the text and with lower confidence.
+# City entries may carry aliases with '/', e.g. Mumbai/Bombay.
+# For regions, districts and smaller cities import GeoNames (CC BY 4.0): see docs/GEOGRAPHY.md.
+DZ|DZA|Algeria|AF|Algiers|||Algerian|0
+AO|AGO|Angola|AF|Luanda|||Angolan|0
+BJ|BEN|Benin|AF|Porto-Novo||Cotonou|Beninese|0
+BW|BWA|Botswana|AF|Gaborone|||Motswana;Batswana|0
+BF|BFA|Burkina Faso|AF|Ouagadougou|||Burkinabe|0
+BI|BDI|Burundi|AF|Gitega||Bujumbura|Burundian|0
+CV|CPV|Cabo Verde|AF|Praia|Cape Verde||Cape Verdean|0
+CM|CMR|Cameroon|AF|Yaoundé||Douala|Cameroonian|0
+CF|CAF|Central African Republic|AF|Bangui|=CAR||Central African|0
+TD|TCD|Chad|AF|N'Djamena|||Chadian|1
+KM|COM|Comoros|AF|Moroni|||Comorian|0
+CG|COG|Republic of the Congo|AF|Brazzaville|Congo-Brazzaville;Congo Republic|||0
+CD|COD|Democratic Republic of the Congo|AF|Kinshasa|DR Congo;=DRC;Congo-Kinshasa;DRC Congo|Goma;Lubumbashi||0
+CI|CIV|Côte d'Ivoire|AF|Yamoussoukro|Ivory Coast|Abidjan|Ivorian|0
+DJ|DJI|Djibouti|AF||||Djiboutian|0
+EG|EGY|Egypt|AF|Cairo||Alexandria;Giza|Egyptian|0
+GQ|GNQ|Equatorial Guinea|AF|Malabo|||Equatoguinean|0
+ER|ERI|Eritrea|AF|Asmara|||Eritrean|0
+SZ|SWZ|Eswatini|AF|Mbabane|Swaziland||Swazi|0
+ET|ETH|Ethiopia|AF|Addis Ababa|||Ethiopian|0
+GA|GAB|Gabon|AF|Libreville|||Gabonese|0
+GM|GMB|Gambia|AF|Banjul|The Gambia||Gambian|0
+GH|GHA|Ghana|AF|Accra||Kumasi|Ghanaian|0
+GN|GIN|Guinea|AF|Conakry|||Guinean|0
+GW|GNB|Guinea-Bissau|AF|Bissau|||Bissau-Guinean|0
+KE|KEN|Kenya|AF|Nairobi||Mombasa;Kisumu|Kenyan|0
+LS|LSO|Lesotho|AF|Maseru|||Basotho|0
+LR|LBR|Liberia|AF|Monrovia|||Liberian|0
+LY|LBY|Libya|AF|Tripoli||Benghazi;Misrata|Libyan|0
+MG|MDG|Madagascar|AF|Antananarivo|||Malagasy|0
+MW|MWI|Malawi|AF|Lilongwe||Blantyre|Malawian|0
+ML|MLI|Mali|AF|Bamako||Timbuktu|Malian|0
+MR|MRT|Mauritania|AF|Nouakchott|||Mauritanian|0
+MU|MUS|Mauritius|AF|Port Louis|||Mauritian|0
+MA|MAR|Morocco|AF|Rabat||Casablanca;Marrakesh;Tangier|Moroccan|0
+MZ|MOZ|Mozambique|AF|Maputo||Beira|Mozambican|0
+NA|NAM|Namibia|AF|Windhoek|||Namibian|0
+NE|NER|Niger|AF|Niamey|||Nigerien|1
+NG|NGA|Nigeria|AF|Abuja||Lagos;Kano;Ibadan;Port Harcourt|Nigerian|0
+RW|RWA|Rwanda|AF|Kigali|||Rwandan|0
+ST|STP|São Tomé and Príncipe|AF|São Tomé||||0
+SN|SEN|Senegal|AF|Dakar|||Senegalese|0
+SC|SYC|Seychelles|AF||||Seychellois|0
+SL|SLE|Sierra Leone|AF|Freetown|||Sierra Leonean|0
+SO|SOM|Somalia|AF|Mogadishu|Somaliland|Hargeisa;Kismayo|Somali|0
+ZA|ZAF|South Africa|AF|Pretoria||Johannesburg;Cape Town;Durban|South African|0
+SS|SSD|South Sudan|AF|Juba|||South Sudanese|0
+SD|SDN|Sudan|AF|Khartoum||Omdurman;Port Sudan;El Fasher|Sudanese|0
+TZ|TZA|Tanzania|AF|Dodoma||Dar es Salaam;Zanzibar;Arusha|Tanzanian|0
+TG|TGO|Togo|AF|Lomé|||Togolese|0
+TN|TUN|Tunisia|AF|Tunis||Sfax|Tunisian|0
+UG|UGA|Uganda|AF|Kampala|||Ugandan|0
+ZM|ZMB|Zambia|AF|Lusaka|||Zambian|0
+ZW|ZWE|Zimbabwe|AF|Harare||Bulawayo|Zimbabwean|0
+EH|ESH|Western Sahara|AF|Laayoune|||Sahrawi|0
+AF|AFG|Afghanistan|AS|Kabul||Kandahar;Herat;Mazar-i-Sharif|Afghan|0
+AM|ARM|Armenia|AS|Yerevan|||Armenian|0
+AZ|AZE|Azerbaijan|AS|Baku|||Azerbaijani|0
+BH|BHR|Bahrain|AS|Manama|||Bahraini|0
+BD|BGD|Bangladesh|AS|Dhaka/Dacca||Chittagong/Chattogram;Khulna;Rajshahi;Sylhet;Barishal/Barisal;Rangpur;Mymensingh;Comilla/Cumilla;Narayanganj;Gazipur;Cox's Bazar|Bangladeshi|0
+BT|BTN|Bhutan|AS|Thimphu|||Bhutanese|0
+BN|BRN|Brunei|AS|Bandar Seri Begawan|Brunei Darussalam||Bruneian|0
+KH|KHM|Cambodia|AS|Phnom Penh||Siem Reap|Cambodian|0
+CN|CHN|China|AS|Beijing/Peking|People's Republic of China;=PRC;Mainland China|Shanghai;Shenzhen;Guangzhou;Wuhan;Chongqing;Chengdu;Tianjin;Xi'an;Hangzhou;Nanjing|Chinese|0
+GE|GEO|Georgia|AS|Tbilisi|||Georgian|1
+IN|IND|India|AS|New Delhi||Delhi;Mumbai/Bombay;Kolkata/Calcutta;Chennai/Madras;Bengaluru/Bangalore;Hyderabad;Ahmedabad;Pune;Lucknow;Jaipur;Srinagar;Guwahati|Indian|0
+ID|IDN|Indonesia|AS|Jakarta||Surabaya;Bandung;Medan;Makassar;Yogyakarta|Indonesian|0
+IR|IRN|Iran|AS|Tehran||Isfahan;Mashhad;Tabriz;Shiraz|Iranian|0
+IQ|IRQ|Iraq|AS|Baghdad||Basra;Mosul;Erbil;Kirkuk;Najaf|Iraqi|0
+IL|ISR|Israel|AS|Jerusalem||Tel Aviv;Haifa|Israeli|0
+JP|JPN|Japan|AS|Tokyo||Osaka;Kyoto;Yokohama;Nagoya;Sapporo;Fukuoka;Hiroshima;Kobe|Japanese|0
+JO|JOR|Jordan|AS|Amman|||Jordanian|1
+KZ|KAZ|Kazakhstan|AS|Astana||Almaty|Kazakh;Kazakhstani|0
+KW|KWT|Kuwait|AS|Kuwait City|||Kuwaiti|0
+KG|KGZ|Kyrgyzstan|AS|Bishkek|||Kyrgyz|0
+LA|LAO|Laos|AS|Vientiane|||Laotian|0
+LB|LBN|Lebanon|AS|Beirut||Tripoli|Lebanese|0
+MY|MYS|Malaysia|AS|Kuala Lumpur||Penang;Johor Bahru|Malaysian|0
+MV|MDV|Maldives|AS||||Maldivian|0
+MN|MNG|Mongolia|AS|Ulaanbaatar/Ulan Bator|||Mongolian|0
+MM|MMR|Myanmar|AS|Naypyidaw/Nay Pyi Taw|Burma|Yangon/Rangoon;Mandalay;Sittwe|Burmese|0
+NP|NPL|Nepal|AS|Kathmandu||Pokhara|Nepali;Nepalese|0
+KP|PRK|North Korea|AS|Pyongyang|=DPRK||North Korean|0
+OM|OMN|Oman|AS|Muscat|||Omani|0
+PK|PAK|Pakistan|AS|Islamabad||Karachi;Lahore;Peshawar;Quetta;Rawalpindi;Faisalabad|Pakistani|0
+PS|PSE|Palestine|AS|Ramallah|Palestinian Territories;West Bank;Gaza Strip|Gaza;Hebron;Nablus;Khan Younis;Rafah|Palestinian|0
+PH|PHL|Philippines|AS|Manila||Quezon City;Cebu;Davao|Filipino;Philippine|0
+QA|QAT|Qatar|AS|Doha|||Qatari|0
+SA|SAU|Saudi Arabia|AS|Riyadh||Jeddah;Mecca;Medina;Dammam|Saudi|0
+SG|SGP|Singapore|AS||||Singaporean|0
+KR|KOR|South Korea|AS|Seoul|Republic of Korea|Busan;Incheon;Daegu|South Korean|0
+LK|LKA|Sri Lanka|AS|Sri Jayawardenepura Kotte||Colombo;Kandy;Jaffna|Sri Lankan|0
+SY|SYR|Syria|AS|Damascus||Aleppo;Homs;Idlib;Latakia|Syrian|0
+TW|TWN|Taiwan|AS|Taipei||Kaohsiung|Taiwanese|0
+TJ|TJK|Tajikistan|AS|Dushanbe|||Tajik|0
+TH|THA|Thailand|AS|Bangkok||Chiang Mai;Phuket|Thai|0
+TL|TLS|Timor-Leste|AS|Dili|East Timor||Timorese|0
+TR|TUR|Türkiye|AS|Ankara|~Turkey;Turkiye|Istanbul;Izmir;Antalya;Gaziantep|Turkish|0
+TM|TKM|Turkmenistan|AS|Ashgabat|||Turkmen|0
+AE|ARE|United Arab Emirates|AS|Abu Dhabi|=UAE;Emirates|Dubai;Sharjah|Emirati|0
+UZ|UZB|Uzbekistan|AS|Tashkent||Samarkand|Uzbek|0
+VN|VNM|Vietnam|AS|Hanoi|Viet Nam|Ho Chi Minh City/Saigon;Da Nang;Haiphong|Vietnamese|0
+YE|YEM|Yemen|AS|Sanaa/Sana'a||Aden;Hodeidah;Taiz|Yemeni|0
+HK|HKG|Hong Kong|AS||||Hongkonger|0
+MO|MAC|Macau|AS||Macao|||0
+AL|ALB|Albania|EU|Tirana|||Albanian|0
+AD|AND|Andorra|EU|Andorra la Vella|||Andorran|0
+AT|AUT|Austria|EU|Vienna||Salzburg;Graz|Austrian|0
+BY|BLR|Belarus|EU|Minsk|||Belarusian|0
+BE|BEL|Belgium|EU|Brussels||Antwerp;Ghent;Liège|Belgian|0
+BA|BIH|Bosnia and Herzegovina|EU|Sarajevo|Bosnia|Mostar;Banja Luka|Bosnian|0
+BG|BGR|Bulgaria|EU|Sofia||Plovdiv;Varna|Bulgarian|0
+HR|HRV|Croatia|EU|Zagreb||Split;Dubrovnik|Croatian|0
+CY|CYP|Cyprus|EU|Nicosia||Limassol|Cypriot|0
+CZ|CZE|Czechia|EU|Prague|Czech Republic|Brno|Czech|0
+DK|DNK|Denmark|EU|Copenhagen||Aarhus|Danish|0
+EE|EST|Estonia|EU|Tallinn|||Estonian|0
+FI|FIN|Finland|EU|Helsinki|||Finnish|0
+FR|FRA|France|EU|Paris||Marseille;Lyon;Toulouse;Nice;Strasbourg;Bordeaux|French|0
+DE|DEU|Germany|EU|Berlin||Munich;Hamburg;Frankfurt;Cologne;Stuttgart;Düsseldorf;Leipzig|German|0
+GR|GRC|Greece|EU|Athens||Thessaloniki|Greek|0
+HU|HUN|Hungary|EU|Budapest|||Hungarian|0
+IS|ISL|Iceland|EU|Reykjavik|||Icelandic|0
+IE|IRL|Ireland|EU|Dublin|Republic of Ireland|Cork|Irish|0
+IT|ITA|Italy|EU|Rome||Milan;Naples;Turin;Venice;Florence;Palermo;Genoa|Italian|0
+XK|XKX|Kosovo|EU|Pristina|||Kosovar|0
+LV|LVA|Latvia|EU|Riga|||Latvian|0
+LI|LIE|Liechtenstein|EU|Vaduz||||0
+LT|LTU|Lithuania|EU|Vilnius|||Lithuanian|0
+LU|LUX|Luxembourg|EU||||Luxembourgish|0
+MT|MLT|Malta|EU|Valletta|||Maltese|0
+MD|MDA|Moldova|EU|Chișinău|||Moldovan|0
+MC|MCO|Monaco|EU||||Monegasque|0
+ME|MNE|Montenegro|EU|Podgorica|||Montenegrin|0
+NL|NLD|Netherlands|EU|Amsterdam|Holland|The Hague;Rotterdam;Utrecht|Dutch|0
+MK|MKD|North Macedonia|EU|Skopje|Macedonia||Macedonian|0
+NO|NOR|Norway|EU|Oslo||Bergen|Norwegian|0
+PL|POL|Poland|EU|Warsaw||Kraków/Krakow;Gdańsk;Wrocław|~Polish|0
+PT|PRT|Portugal|EU|Lisbon||Porto|Portuguese|0
+RO|ROU|Romania|EU|Bucharest||Cluj-Napoca|Romanian|0
+RU|RUS|Russia|EU|Moscow|Russian Federation|Saint Petersburg/St Petersburg;Novosibirsk;Yekaterinburg;Kazan|Russian|0
+SM|SMR|San Marino|EU||||Sammarinese|0
+RS|SRB|Serbia|EU|Belgrade||Novi Sad|Serbian|0
+SK|SVK|Slovakia|EU|Bratislava|||Slovak|0
+SI|SVN|Slovenia|EU|Ljubljana|||Slovenian;Slovene|0
+ES|ESP|Spain|EU|Madrid||Barcelona;Valencia;Seville;Bilbao;Málaga|Spanish|0
+SE|SWE|Sweden|EU|Stockholm||Gothenburg;Malmö|Swedish|0
+CH|CHE|Switzerland|EU|Bern||Zurich;Geneva;Basel;Lausanne|Swiss|0
+UA|UKR|Ukraine|EU|Kyiv/Kiev||Kharkiv;Odesa/Odessa;Lviv;Dnipro;Zaporizhzhia;Kherson;Mariupol|Ukrainian|0
+GB|GBR|United Kingdom|EU|London|=UK;=U.K.;Britain;Great Britain;England;Scotland;Wales;Northern Ireland|Manchester;Birmingham;Liverpool;Leeds;Glasgow;Edinburgh;Belfast;Cardiff|British|0
+VA|VAT|Vatican City|EU||Holy See;Vatican|||0
+AG|ATG|Antigua and Barbuda|NA|St. John's||||0
+BS|BHS|Bahamas|NA|Nassau|The Bahamas||Bahamian|0
+BB|BRB|Barbados|NA|Bridgetown|||Barbadian|0
+BZ|BLZ|Belize|NA|Belmopan|||Belizean|0
+CA|CAN|Canada|NA|Ottawa||Toronto;Montreal;Vancouver;Calgary;Edmonton;Quebec City;Winnipeg|Canadian|0
+CR|CRI|Costa Rica|NA|San José|||Costa Rican|0
+CU|CUB|Cuba|NA|Havana|||Cuban|0
+DM|DMA|Dominica|NA|Roseau||||0
+DO|DOM|Dominican Republic|NA|Santo Domingo|||Dominican|0
+SV|SLV|El Salvador|NA|San Salvador|||Salvadoran|0
+GD|GRD|Grenada|NA|St. George's|||Grenadian|0
+GT|GTM|Guatemala|NA|Guatemala City|||Guatemalan|0
+HT|HTI|Haiti|NA|Port-au-Prince|||Haitian|0
+HN|HND|Honduras|NA|Tegucigalpa|||Honduran|0
+JM|JAM|Jamaica|NA|Kingston|||Jamaican|0
+MX|MEX|Mexico|NA|Mexico City||Guadalajara;Monterrey;Tijuana;Cancún|Mexican|0
+NI|NIC|Nicaragua|NA|Managua|||Nicaraguan|0
+PA|PAN|Panama|NA|Panama City|||Panamanian|0
+KN|KNA|Saint Kitts and Nevis|NA|Basseterre||||0
+LC|LCA|Saint Lucia|NA|Castries||||0
+VC|VCT|Saint Vincent and the Grenadines|NA|Kingstown||||0
+TT|TTO|Trinidad and Tobago|NA|Port of Spain|||Trinidadian|0
+US|USA|United States|NA|~Washington|=US;=U.S.;=USA;=U.S.A.;United States of America;~America|New York;Los Angeles;Chicago;Houston;San Francisco;Miami;Boston;Seattle;Atlanta;Dallas;Philadelphia;Detroit|~American|0
+PR|PRI|Puerto Rico|NA|San Juan|||Puerto Rican|0
+GL|GRL|Greenland|NA|Nuuk|||Greenlandic|0
+AR|ARG|Argentina|SA|Buenos Aires||Córdoba;Rosario|Argentine;Argentinian|0
+BO|BOL|Bolivia|SA|Sucre||La Paz;Santa Cruz de la Sierra|Bolivian|0
+BR|BRA|Brazil|SA|Brasília||São Paulo;Rio de Janeiro;Salvador;Belo Horizonte;Manaus;Recife|Brazilian|0
+CL|CHL|Chile|SA|Santiago||Valparaíso|Chilean|0
+CO|COL|Colombia|SA|Bogotá||Medellín;Cali;Cartagena|Colombian|0
+EC|ECU|Ecuador|SA|Quito||Guayaquil|Ecuadorian|0
+GY|GUY|Guyana|SA|Georgetown|||Guyanese|0
+PY|PRY|Paraguay|SA|Asunción|||Paraguayan|0
+PE|PER|Peru|SA|Lima||Cusco|Peruvian|0
+SR|SUR|Suriname|SA|Paramaribo|||Surinamese|0
+UY|URY|Uruguay|SA|Montevideo|||Uruguayan|0
+VE|VEN|Venezuela|SA|Caracas||Maracaibo|Venezuelan|0
+AU|AUS|Australia|OC|Canberra||Sydney;Melbourne;Brisbane;Perth;Adelaide|Australian|0
+FJ|FJI|Fiji|OC|Suva|||Fijian|0
+KI|KIR|Kiribati|OC|Tarawa||||0
+MH|MHL|Marshall Islands|OC|Majuro|||Marshallese|0
+FM|FSM|Micronesia|OC|Palikir|Federated States of Micronesia|||0
+NR|NRU|Nauru|OC|Yaren|||Nauruan|0
+NZ|NZL|New Zealand|OC|Wellington|Aotearoa|Auckland;Christchurch|New Zealander|0
+PW|PLW|Palau|OC|Ngerulmud|||Palauan|0
+PG|PNG|Papua New Guinea|OC|Port Moresby|=PNG||Papua New Guinean|0
+WS|WSM|Samoa|OC|Apia|||Samoan|0
+SB|SLB|Solomon Islands|OC|Honiara||||0
+TO|TON|Tonga|OC|Nuku'alofa|||Tongan|0
+TV|TUV|Tuvalu|OC|Funafuti|||Tuvaluan|0
+VU|VUT|Vanuatu|OC|Port Vila||||0

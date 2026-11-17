@@ -1,0 +1,6 @@
+# Test-only additions on top of requirements.lock
+-r requirements.lock
+Pygments==2.21.0
+iniconfig==2.3.1
+pluggy==1.7.0
+pytest==8.4.2

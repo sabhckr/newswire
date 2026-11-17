@@ -1,0 +1,13 @@
+[Unit]
+Description=NEWSWIRE web UI
+After=network-online.target newswire-api.service
+
+[Service]
+User=newswire
+WorkingDirectory=/opt/newswire/frontend/.next/standalone
+Environment=PORT=3000 HOSTNAME=127.0.0.1 NODE_ENV=production
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

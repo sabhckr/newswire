@@ -1,0 +1,16 @@
+[Unit]
+Description=NEWSWIRE collection and scheduling worker
+After=network-online.target postgresql.service newswire-api.service
+
+[Service]
+User=newswire
+WorkingDirectory=/opt/newswire/backend
+EnvironmentFile=/opt/newswire/.env
+ExecStart=/opt/newswire/backend/.venv/bin/python -m app.worker
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
