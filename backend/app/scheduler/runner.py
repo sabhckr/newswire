@@ -107,7 +107,10 @@ def job_housekeeping(db: Session):
     r1 = db.execute(delete(UserSession).where((UserSession.expires_at < now) | (UserSession.revoked_at < now - timedelta(days=7))))
     r2 = db.execute(delete(SourceFetchLog).where(SourceFetchLog.started_at < now - timedelta(days=int(cfg["fetch_log_retention_days"]))))
     r3 = db.execute(delete(Notification).where(Notification.is_read.is_(True), Notification.created_at < now - timedelta(days=30)))
-    return {"sessions": r1.rowcount, "fetch_logs": r2.rowcount, "notifications": r3.rowcount}
+    from app.videos.service import prune_uploads
+
+    return {"sessions": r1.rowcount, "fetch_logs": r2.rowcount, "notifications": r3.rowcount,
+            "unfinished_uploads": prune_uploads()}
 
 
 def job_publication_sync(db: Session):

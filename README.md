@@ -182,7 +182,8 @@ The live API reference is served at `/api/docs` (Swagger UI) and `/api/openapi.j
 
 ## Licence and data
 
-NEWSWIRE stores headlines, summaries and links from the feeds you configure. It does not
-copy full articles unless a source's terms allow it and you enable page metadata extraction
-for that source. Respect each publisher's terms. Image licences and attribution come from the
+NEWSWIRE stores headlines, summaries and links from the feeds you configure. The full text of a
+story is read only when an editor asks for it (**Load full article**), and robots.txt, logins and
+paywalls are respected. News text and photos belong to their publishers: rewrite and credit
+before you publish, and respect each publisher's terms. Image licences and attribution come from the
 providers. Check them before publishing. Optional GeoNames data is licensed CC BY 4.0.

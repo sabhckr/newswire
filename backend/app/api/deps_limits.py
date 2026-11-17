@@ -13,3 +13,6 @@ login_limiter = SlidingWindowLimiter(_settings.login_rate_limit_per_minute, 60)
 def reset_limits() -> None:
     api_limiter.reset()
     login_limiter.reset()
+    from app.api.news import full_text_limiter
+
+    full_text_limiter.reset()

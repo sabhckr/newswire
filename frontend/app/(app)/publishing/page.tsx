@@ -2,24 +2,29 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CheckCircle2,
+  ExternalLink,
   Globe,
   KeyRound,
   ListChecks,
+  LogIn,
   Pencil,
   Play,
   Plug,
   Plus,
   ShieldCheck,
   Trash2,
+  Unplug,
   Webhook,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { DestinationDialog } from "@/components/publishing/destination-dialog";
+import { DestinationDialog, startConnect } from "@/components/publishing/destination-dialog";
+import { KIND_ICON, KIND_LABEL, isSocial } from "@/components/publishing/kinds";
 import { ACTION_LABEL, JobActions, JobStatus, useInvalidatePublishing } from "@/components/publishing/jobs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -257,8 +262,66 @@ function QueueTab() {
 
 // --- Destinations -------------------------------------------------------------------------------
 
-const KIND_LABEL: Record<string, string> = { builtin: "Built-in site", wordpress: "WordPress", webhook: "Webhook" };
-const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = { builtin: Globe, wordpress: Globe, webhook: Webhook };
+/** Shown after Facebook / Google send the browser back: report the result once, then tidy the address. */
+function useConnectResult(destinations: DestinationOut[] | undefined) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const qc = useQueryClient();
+  const handled = useRef<string | null>(null);
+  const connected = params.get("connected");
+  const failed = params.get("connect_error");
+  useEffect(() => {
+    if (!connected && !failed) return;
+    const key = `${connected ?? ""}|${failed ?? ""}`;
+    if (handled.current === key) return;
+    if (failed) {
+      handled.current = key;
+      toast.error(failed, { duration: 15000 });
+    } else {
+      // Wait for fresh data so the message says whether a Facebook Page still has to be chosen.
+      if (!destinations) return;
+      handled.current = key;
+      const d = destinations.find((x) => x.id === connected);
+      if (d?.connection?.connected) toast.success(`${d.name} is connected${d.connection.account_name ? ` to ${d.connection.account_name}` : ""}.`);
+      else if (d?.connection?.pages?.length) toast.info(`Signed in. Now choose which Facebook Page ${d.name} posts to.`);
+      else toast.success("Connected.");
+    }
+    qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
+    router.replace(`${pathname}?tab=destinations`, { scroll: false });
+  }, [connected, failed, destinations, qc, router, pathname]);
+}
+
+function PageChooser({ d }: { d: DestinationOut }) {
+  const qc = useQueryClient();
+  const pages = d.connection?.pages ?? [];
+  const [pageId, setPageId] = useState(pages[0]?.id ?? "");
+  const choose = useMutation({
+    mutationFn: () => api<DestinationOut>(`/publishing/destinations/${d.id}/facebook-page`, { body: { page_id: pageId } }),
+    onSuccess: (r) => {
+      toast.success(`${r.name} now posts to ${r.connection?.account_name ?? "the Page"}.`);
+      qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  return (
+    <div className="mx-4 mb-2 flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 sm:flex-row sm:items-end">
+      <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
+        <span className="font-medium">Choose the Facebook Page to post to</span>
+        <Select value={pageId} onChange={(e) => setPageId(e.target.value)} aria-label="Facebook Page">
+          {pages.map((pg) => (
+            <option key={pg.id} value={pg.id}>
+              {pg.name}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <Button size="sm" variant="primary" disabled={!pageId} loading={choose.isPending} onClick={() => choose.mutate()}>
+        Use this Page
+      </Button>
+    </div>
+  );
+}
 
 function DestinationsTab() {
   const { can } = useSession();
@@ -270,6 +333,25 @@ function DestinationsTab() {
   const globalAuto = !!policy.data?.values.publishing?.auto_publish_policy;
   const [editing, setEditing] = useState<DestinationOut | null>(null);
   const [open, setOpen] = useState(false);
+  useConnectResult(destinations.isFetching ? undefined : destinations.data);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const connect = async (d: DestinationOut) => {
+    setConnecting(d.id);
+    try {
+      await startConnect(d);
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setConnecting(null);
+    }
+  };
+  const disconnect = useMutation({
+    mutationFn: (d: DestinationOut) => api<DestinationOut>(`/publishing/destinations/${d.id}/disconnect`, { method: "POST" }),
+    onSuccess: (_, d) => {
+      toast.success(`Disconnected ${d.name}`);
+      qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
 
   const test = useMutation({
     mutationFn: (d: DestinationOut) => api<{ ok: boolean; message: string }>(`/publishing/destinations/${d.id}/test`, { method: "POST" }),
@@ -293,7 +375,8 @@ function DestinationsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted">
-          Credentials are stored encrypted on the server and are never sent back to the browser.
+          Add your website (WordPress username and application password), a Facebook Page or a YouTube channel. Credentials are stored
+          encrypted on the server and are never sent back to the browser.
         </p>
         {manage ? (
           <Button
@@ -314,13 +397,16 @@ function DestinationsTab() {
         <ErrorState error={destinations.error} onRetry={() => destinations.refetch()} />
       ) : !destinations.data?.length ? (
         <Card>
-          <EmptyState icon={Plug} title="No destinations" description="Add a WordPress site or a webhook to publish outside the built-in site." />
+          <EmptyState icon={Plug} title="No destinations" description="Add your website, a Facebook Page or a YouTube channel to publish outside the built-in site." />
         </Card>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2">
           {destinations.data.map((d) => {
             const Icon = KIND_ICON[d.kind] ?? Globe;
             const checkOk = d.last_check_status?.startsWith("OK");
+            const social = isSocial(d.kind);
+            const conn = d.connection;
+            const choosingPage = social && !conn?.connected && !!conn?.pages?.length;
             return (
               <li key={d.id}>
                 <Card className="flex h-full flex-col">
@@ -332,8 +418,21 @@ function DestinationsTab() {
                       <h2 className="truncate text-sm font-semibold">{d.name}</h2>
                       <p className="truncate text-xs text-muted">
                         {KIND_LABEL[d.kind] ?? d.kind}
-                        {d.base_url ? <> · {hostOf(d.base_url)}</> : null}
-                        {d.username ? <> · {d.username}</> : null}
+                        {!social && d.base_url ? <> · {hostOf(d.base_url)}</> : null}
+                        {!social && d.username ? <> · {d.username}</> : null}
+                        {social && conn?.connected && conn.account_name ? (
+                          <>
+                            {" · "}
+                            {conn.account_url ? (
+                              <a href={conn.account_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 hover:underline">
+                                {conn.account_name}
+                                <ExternalLink className="h-3 w-3" aria-hidden />
+                              </a>
+                            ) : (
+                              conn.account_name
+                            )}
+                          </>
+                        ) : null}
                       </p>
                     </div>
                     <StatusBadge status={d.is_active ? "active" : "disabled"} label={d.is_active ? "Active" : "Inactive"} />
@@ -342,7 +441,11 @@ function DestinationsTab() {
                     <Badge tone={d.is_commercial ? "neutral" : "info"} title="Commercial destinations block NonCommercial-licensed images">
                       {d.is_commercial ? "Commercial" : "Non-commercial"}
                     </Badge>
-                    {d.kind !== "builtin" ? (
+                    {social ? (
+                      <Badge tone={conn?.connected ? "success" : "warning"} icon={conn?.connected ? CheckCircle2 : Unplug}>
+                        {conn?.connected ? "Connected" : choosingPage ? "Choose a Page" : "Not connected"}
+                      </Badge>
+                    ) : d.kind !== "builtin" ? (
                       <Badge tone={d.has_secret ? "neutral" : d.kind === "wordpress" ? "danger" : "warning"} icon={KeyRound}>
                         {d.has_secret ? "Credential stored" : d.kind === "wordpress" ? "No credential" : "Unsigned"}
                       </Badge>
@@ -354,10 +457,18 @@ function DestinationsTab() {
                     ) : null}
                   </div>
                   <div className="flex-1 px-4 py-2 text-xs text-muted">
-                    {d.last_checked_at ? (
+                    {d.last_checked_at && d.last_check_status ? (
                       <p className={cn("line-clamp-2", checkOk ? "text-success" : "text-danger")} title={d.last_check_status ?? undefined}>
                         <span className="sr-only">Last connection test: </span>
                         {d.last_check_status} · <Time value={d.last_checked_at} />
+                      </p>
+                    ) : choosingPage ? (
+                      <p>Signed in to Facebook. Choose which Page NEWSWIRE posts to.</p>
+                    ) : social && !conn?.connected ? (
+                      <p>
+                        {manage
+                          ? `Click Connect and sign in with the ${d.kind === "facebook" ? "Facebook account that manages the Page" : "Google account that owns the channel"}.`
+                          : "Not connected yet. An administrator has to connect it."}
                       </p>
                     ) : d.kind !== "builtin" ? (
                       <p>Connection not tested yet.</p>
@@ -365,11 +476,40 @@ function DestinationsTab() {
                       <p>Serves the public API (/api/v1/public) and RSS feed.</p>
                     )}
                   </div>
+                  {manage && choosingPage ? <PageChooser key={conn?.pages?.map((x) => x.id).join()} d={d} /> : null}
                   {manage ? (
                     <div className="flex flex-wrap gap-1 border-t border-border px-3 py-2">
-                      {d.kind !== "builtin" ? (
+                      {social ? (
+                        <Button
+                          size="sm"
+                          variant={conn?.connected || choosingPage ? "ghost" : "primary"}
+                          loading={connecting === d.id}
+                          onClick={() => connect(d)}
+                        >
+                          <LogIn className="h-3.5 w-3.5" /> {conn?.connected || choosingPage ? "Reconnect" : "Connect"}
+                        </Button>
+                      ) : null}
+                      {d.kind !== "builtin" && (!social || conn?.connected) ? (
                         <Button size="sm" variant="ghost" loading={test.isPending && test.variables?.id === d.id} onClick={() => test.mutate(d)}>
                           <Plug className="h-3.5 w-3.5" /> Test connection
+                        </Button>
+                      ) : null}
+                      {social && (conn?.connected || choosingPage) ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          loading={disconnect.isPending && disconnect.variables?.id === d.id}
+                          onClick={async () => {
+                            const ok = await confirm({
+                              title: `Disconnect ${d.name}?`,
+                              body: "NEWSWIRE forgets the sign-in. Posts already published stay online. Scheduled posts here will fail until you connect again.",
+                              confirmLabel: "Disconnect",
+                              destructive: true,
+                            });
+                            if (ok) disconnect.mutate(d);
+                          }}
+                        >
+                          <Unplug className="h-3.5 w-3.5" /> Disconnect
                         </Button>
                       ) : null}
                       <Button

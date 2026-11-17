@@ -8,20 +8,41 @@ import re
 import nh3
 from bs4 import BeautifulSoup
 
+from app.articles.video import is_embed_url
 from app.core.config import get_settings
 from app.images.licenses import evaluate_use
 from app.models import Article, EditorialAssignment, ImageAsset
 
 ALLOWED_TAGS = {
     "p", "br", "hr", "h2", "h3", "h4", "strong", "b", "em", "i", "u", "s", "code", "pre",
-    "blockquote", "ul", "ol", "li", "a", "figure", "figcaption", "img", "span",
+    "blockquote", "ul", "ol", "li", "a", "figure", "figcaption", "img", "span", "div", "iframe",
 }
 ALLOWED_ATTRS = {
     "a": {"href", "title", "target"},
     "img": {"src", "alt", "title", "data-image-id", "width", "height"},
     "span": {"data-attribution"},
     "figure": {"data-image-id"},
+    "div": {"data-video-embed"},
+    "iframe": {"src", "title", "allow", "allowfullscreen", "loading", "referrerpolicy", "width", "height", "frameborder"},
 }
+VIDEO_ALLOW = "accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+_EMPTY_IFRAME = re.compile(r"<iframe(?![^>]*\ssrc=)[^>]*>\s*</iframe>")
+
+
+def _attribute_filter(tag: str, attr: str, value: str) -> str | None:
+    if tag != "iframe":
+        return value
+    if attr == "src":
+        return value if is_embed_url(value) else None  # only the video players in app.articles.video
+    if attr == "allow":
+        return VIDEO_ALLOW
+    if attr == "referrerpolicy":
+        return "strict-origin-when-cross-origin"
+    if attr == "loading":
+        return "lazy"
+    if attr in ("width", "height"):
+        return value if value.isdigit() and len(value) <= 4 else None
+    return value
 
 TEMPLATE_MARKER = "[EDITOR:"
 
@@ -29,13 +50,15 @@ TEMPLATE_MARKER = "[EDITOR:"
 def sanitize_html(value: str | None) -> str:
     if not value:
         return ""
-    return nh3.clean(
+    cleaned = nh3.clean(
         value,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRS,
+        attribute_filter=_attribute_filter,
         url_schemes={"http", "https", "mailto"},
         link_rel="noopener noreferrer nofollow",
     )
+    return _EMPTY_IFRAME.sub("", cleaned)
 
 
 def html_text(value: str | None) -> str:
@@ -64,11 +87,13 @@ def credit_line(asset: ImageAsset) -> str:
 
 
 def render_article_html(
-    article: Article, *, for_preview: bool = False, include_header: bool = True, include_featured: bool = True
+    article: Article, *, for_preview: bool = False, include_header: bool = True, include_featured: bool = True,
+    include_video: bool | None = None,
 ) -> str:
     """Self-contained HTML for preview, the built-in public API and webhooks.
 
-    WordPress renders its own title and featured image, so its connector turns both off.
+    WordPress renders its own title and featured image, so its connector turns both off; it
+    uploads the article's video to its own media library. include_video defaults to include_featured.
     """
     e = html.escape
     parts = ["<article class=\"nw-article\">"]
@@ -86,6 +111,11 @@ def render_article_html(
                 f"<figure class=\"nw-featured\"><img src=\"{e(src)}\" alt=\"{e(cap)}\"/>"
                 f"<figcaption>{e(cap)}<span class=\"nw-credit\"> {e(credit_line(img))}</span></figcaption></figure>"
             )
+    video = article.video
+    if video is not None and (include_featured if include_video is None else include_video):
+        # The preview loads it from this server; elsewhere it needs the public address.
+        vsrc = f"/media/{video.local_path}" if for_preview else f"{get_settings().public_base_url.rstrip('/')}/media/{video.local_path}"
+        parts.append(f"<figure class=\"nw-video\"><video controls preload=\"metadata\" src=\"{e(vsrc)}\"></video></figure>")
     parts.append(f"<div class=\"nw-body\">{sanitize_html(article.body_html)}</div>")
     inline = [ai for ai in article.images if not img or ai.image_asset_id != img.id]
     credits = ([img] if img else []) + [ai.image for ai in inline]
@@ -119,9 +149,13 @@ body { font-family: "Source Serif 4", "Source Serif Pro", Georgia, Cambria, "Tim
 .nw-article header h1 { font-size: 2.1em; line-height: 1.15; margin: 0 0 .35em; letter-spacing: -0.01em; }
 .nw-subtitle { font-size: 1.15em; color: var(--muted); margin: 0 0 1.2em; }
 .nw-featured { margin: 1.4em 0; }
+.nw-video { margin: 1.4em 0; }
+.nw-video video { width: 100%; max-height: 80vh; background: #000; border-radius: 4px; display: block; }
 .nw-featured img, .nw-body img { max-width: 100%; height: auto; display: block; border-radius: 4px; }
 figcaption { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali", "Hind Siliguri", SolaimanLipi, "Kohinoor Bangla", "Nirmala UI", sans-serif; font-size: 13px; color: var(--muted); margin-top: 6px; }
 .nw-credit { opacity: .9; }
+.nw-body [data-video-embed] { position: relative; padding-top: 56.25%; margin: 1.4em 0; }
+.nw-body [data-video-embed] iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 4px; }
 .nw-body h2 { font-size: 1.35em; margin: 1.6em 0 .5em; }
 .nw-body h3 { font-size: 1.15em; margin: 1.4em 0 .4em; }
 .nw-body blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 3px solid var(--rule); color: var(--muted); }

@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     max_feed_bytes: int = 5_000_000
     max_image_bytes: int = 15_000_000
     max_upload_bytes: int = 15_000_000
+    # Video uploads for Facebook Reels, YouTube and websites (MP4 or MOV). The reverse proxy's
+    # body limit for /api/v1/videos must be at least this large.
+    max_video_bytes: int = 1_000_000_000
     min_poll_interval_seconds: int = 60
     default_poll_interval_seconds: int = 300
     max_backoff_seconds: int = 6 * 3600
@@ -62,6 +65,18 @@ class Settings(BaseSettings):
     # Image providers (optional credentials raise Openverse rate limits)
     openverse_client_id: str = ""
     openverse_client_secret: str = ""
+
+    # Facebook Pages and YouTube publishing. The URLs only change for a new Graph API version
+    # or for tests against a local stand-in.
+    facebook_graph_version: str = "v23.0"
+    facebook_graph_url: str = "https://graph.facebook.com"
+    facebook_dialog_url: str = "https://www.facebook.com"
+    facebook_upload_url: str = "https://rupload.facebook.com"
+    facebook_scopes: str = "pages_show_list,pages_read_engagement,pages_manage_posts"
+    google_auth_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    google_token_url: str = "https://oauth2.googleapis.com/token"
+    youtube_api_url: str = "https://www.googleapis.com/youtube/v3"
+    youtube_upload_url: str = "https://www.googleapis.com/upload/youtube/v3"
 
     # Backups
     backup_encryption_key: str = ""
@@ -81,6 +96,11 @@ class Settings(BaseSettings):
     @property
     def images_dir(self) -> Path:
         return self.storage_dir / "images"
+
+    @property
+    def videos_dir(self) -> Path:
+        # Under the media root, so /media/videos/... serves them like images.
+        return self.images_dir / "videos"
 
     @property
     def backups_dir(self) -> Path:

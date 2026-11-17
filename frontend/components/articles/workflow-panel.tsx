@@ -73,8 +73,9 @@ export function WorkflowPanel({
     if (article.status === "scheduled" && to !== "published") {
       const ok = await confirm({
         title: "Cancel the scheduled publication?",
-        body: `It was due to go live ${formatDateTime(article.scheduled_at)}. The pending job is cancelled.`,
+        body: `It was due to go live ${formatDateTime(article.scheduled_at)}. Every scheduled post for it (website, Facebook, YouTube) is cancelled.`,
         confirmLabel: spec(article.status, to).label,
+        cancelLabel: "Keep it",
       });
       if (!ok) return;
     }

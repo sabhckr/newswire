@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func, literal_column, or_, select
 from sqlalchemy.orm import Session
 
+import html
+
 from app.api.common import get_or_404, news_out
+from app.collectors.article_text import ArticleFetchError, fetch_article
+from app.core.errors import AppError
+from app.core.http import make_client
+from app.core.ratelimit import SlidingWindowLimiter
 from app.core.db import get_db, is_postgres, utcnow
 from app.core.text import STOPWORDS, bn_stem, is_bangla, tokens
 from app.core.pagination import PageParams
@@ -292,4 +298,100 @@ def publisher_facets(db: Session = Depends(get_db), _: CurrentUser = Depends(req
     return [{"publisher": r[0], "sources": r[1]} for r in rows]
 
 
-__all__ = ["router", "build_news_query", "fts_condition", "Category"]
+# Full text is read on an editor's request. Keep it to a human pace per user, so a script cannot
+# use NEWSWIRE to crawl a publisher.
+full_text_limiter = SlidingWindowLimiter(30, 60)
+
+
+def _full_text_payload(item: NewsItem) -> dict | None:
+    data = (item.extra or {}).get("full_text")
+    return data if isinstance(data, dict) and data.get("paragraphs") else None
+
+
+def _read_full_text(db: Session, item: NewsItem, current: CurrentUser, refresh: bool) -> dict:
+    cached = _full_text_payload(item)
+    if cached and not refresh:
+        return cached
+    allowed, retry = full_text_limiter.hit(f"fulltext:{current.id}")
+    if not allowed:
+        raise AppError(429, "rate_limited", f"Too many full-text requests. Try again in {int(retry) + 1} seconds.")
+    respect = item.source.respect_robots if item.source is not None else True
+    try:
+        with make_client() as client:
+            article = fetch_article(client, item.url, respect_robots=respect)
+    except ArticleFetchError as exc:
+        raise AppError(422, "full_text_unavailable", str(exc)) from exc
+    data = {
+        "url": article.url,
+        "title": article.title,
+        "paragraphs": article.paragraphs,
+        "author": article.author,
+        "published_at": article.published_at.isoformat() if article.published_at else None,
+        "lead_image": article.lead_image,
+        "images": article.images,
+        "videos": article.videos,
+        "method": article.method,
+        "char_count": article.char_count,
+        "fetched_at": utcnow().isoformat(),
+    }
+    item.extra = {**(item.extra or {}), "full_text": data}
+    if not item.author and article.author:
+        item.author = article.author[:300]
+    db.commit()
+    return data
+
+
+@router.post("/{item_id}/full-text")
+def full_text(item_id: uuid.UUID, refresh: bool = False, db: Session = Depends(get_db),
+              current: CurrentUser = Depends(require(P.READ))):
+    """The story's full text, read from its page once and kept with the report.
+
+    robots.txt is respected when the source asks for it; paywalls, logins and bot checks are reported
+    as errors, never bypassed."""
+    item = get_or_404(db, NewsItem, item_id, "News item")
+    return _read_full_text(db, item, current, refresh)
+
+
+def _draft_body(item: NewsItem, paragraphs: list[str]) -> str:
+    e = html.escape
+    publisher = (item.source.publisher if item.source is not None else None) or item.url
+    parts = [f"<p>{e(p)}</p>" for p in paragraphs]
+    parts.append(f'<p><em>Source: <a href="{e(item.url)}">{e(publisher)}</a></em></p>')
+    return "".join(parts)
+
+
+@router.post("/{item_id}/article", status_code=201)
+def start_article_from_news(item_id: uuid.UUID, db: Session = Depends(get_db),
+                            current: CurrentUser = Depends(require(P.ARTICLES_WRITE))):
+    """A draft article holding this report's headline and text, with the report as its source.
+
+    Uses the full text when it can be read; otherwise the feed's summary. The editor then rewrites it."""
+    from app.api.articles import article_out
+    from app.services.articles import create_article
+
+    item = get_or_404(db, NewsItem, item_id, "News item")
+    note = None
+    try:
+        data = _read_full_text(db, item, current, refresh=False)
+        paragraphs = data["paragraphs"]
+    except AppError as exc:
+        if exc.code == "rate_limited":
+            raise
+        paragraphs = [p for p in (item.summary or "").split("\n") if p.strip()]
+        note = f"The full text could not be read ({exc.message}); the draft starts from the feed summary."
+    article = create_article(db, {
+        "headline": item.title[:500],
+        "excerpt": (item.summary or "")[:2000] or None,
+        "body_html": _draft_body(item, paragraphs),
+        "sources": [{"news_item_id": item.id}],
+    }, current)
+    record(db, "article.created", f"Draft \u201c{article.headline[:100]}\u201d created from a news report",
+           actor=current, entity_type="article", entity_id=article.id, details={"news_item_id": str(item.id)})
+    db.commit()
+    out = article_out(db, article, current)
+    if note:
+        out = {**(out.model_dump(mode="json") if hasattr(out, "model_dump") else out), "notice": note}
+    return out
+
+
+__all__ = ["router", "build_news_query", "fts_condition", "Category", "full_text_limiter"]

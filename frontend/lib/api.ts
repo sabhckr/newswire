@@ -30,6 +30,11 @@ function readCsrfCookie(): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+/** The CSRF token for unsafe requests made outside api() (e.g. an XHR upload with progress). */
+export function currentCsrfToken(): string | null {
+  return csrfToken ?? readCsrfCookie();
+}
+
 export type Query = Record<string, string | number | boolean | null | undefined | (string | number)[]>;
 
 export function qs(query?: Query): string {

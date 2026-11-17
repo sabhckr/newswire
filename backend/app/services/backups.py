@@ -154,8 +154,11 @@ def create_backup(db: Session, *, kind: str = "manual", user_id=None, include_im
             db.rollback()
         members: dict[str, Path] = {dump_path.name: dump_path, "config.json": config_path}
         if include_images and settings.images_dir.exists():
+            videos = settings.videos_dir.resolve()
             for p in sorted(settings.images_dir.rglob("*")):
-                if p.is_file():
+                # Uploaded videos are left out: they are large, and they are already on Facebook,
+                # YouTube or the website they were published to (see docs/RECOVERY.md).
+                if p.is_file() and videos not in p.resolve().parents:
                     members[f"images/{p.relative_to(settings.images_dir).as_posix()}"] = p
         manifest = {
             "format": 1, "created_at": utcnow().isoformat(), "newswire_version": VERSION, "database": db_kind,

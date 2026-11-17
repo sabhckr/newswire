@@ -17,7 +17,14 @@
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
 	}
-	request_body {
+	# Requests are limited to 20 MB. Browsers upload videos in 8 MB pieces (/api/v1/videos/uploads/...).
+	# Only scripts that POST a whole file to /api/v1/videos need more: up to NEWSWIRE_MAX_VIDEO_BYTES.
+	@videos path /api/v1/videos
+	@not_videos not path /api/v1/videos
+	request_body @videos {
+		max_size 1100MB
+	}
+	request_body @not_videos {
 		max_size 20MB
 	}
 }

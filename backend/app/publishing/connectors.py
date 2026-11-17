@@ -1,10 +1,15 @@
-"""Publishing connectors: built-in public API, WordPress REST API, signed webhook."""
+"""Publishing connectors: built-in public API, WordPress REST API, signed webhook.
+
+Facebook Pages and YouTube are in app/publishing/social.py. Every connector has
+publish(article, publication, mode, client, options=None), unpublish, status and check.
+"""
 
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
+import html
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -59,6 +64,18 @@ def article_payload(article: Article) -> dict:
             if img
             else None
         ),
+        "video": (
+            {
+                "url": f"{base}/media/{video.local_path}",
+                "mime": video.mime,
+                "width": video.width,
+                "height": video.height,
+                "duration_seconds": video.duration_seconds,
+                "file_size": video.file_size,
+            }
+            if (video := article.video) is not None
+            else None
+        ),
         "sources": [{"title": s.title, "url": s.url, "publisher": s.publisher} for s in article.sources],
         "version": article.version,
         "published_at": article.published_at.isoformat() if article.published_at else None,
@@ -75,7 +92,9 @@ class BuiltinConnector:
     def _url(self, article: Article) -> str:
         return f"{get_settings().public_base_url.rstrip('/')}/api/v1/public/articles/{article.slug}"
 
-    def publish(self, article, publication, mode, client) -> RemoteResult:
+    supports_draft = True
+
+    def publish(self, article, publication, mode, client, options=None) -> RemoteResult:
         return RemoteResult(str(article.id), self._url(article), "draft" if mode == "draft" else "published")
 
     def unpublish(self, article, publication, client) -> RemoteResult:
@@ -89,6 +108,8 @@ class BuiltinConnector:
 
 
 class WordPressConnector:
+    supports_draft = True
+
     def __init__(self, dest: PublishingDestination):
         if not dest.base_url or not dest.username:
             raise PublishError("WordPress destination needs a site URL and a username", retryable=False)
@@ -151,11 +172,47 @@ class WordPressConnector:
         })
         return int(media["id"])
 
-    def publish(self, article, publication, mode, client) -> RemoteResult:
+    def _video_block(self, article: Article, publication: ArticlePublication | None, client) -> tuple[str, dict | None]:
+        """Upload the article's video to the WordPress media library (once) and return a video block."""
+        video = article.video
+        if video is None:
+            return "", None
+        details = (publication.details or {}) if publication else {}
+        cached = (details.get("videos") or {}).get(str(video.id))
+        if not cached:
+            from app.videos.service import VideoError, file_chunks, require_file
+
+            try:
+                path = require_file(video)
+            except VideoError as exc:
+                raise PublishError(str(exc), retryable=False) from exc
+            name = f"{article.slug[:80] or 'video'}.{path.suffix.lstrip('.') or 'mp4'}"
+            try:
+                media = self._call(
+                    client, "POST", "/media", content=file_chunks(path),
+                    extra_headers={"Content-Type": video.mime, "Content-Length": str(video.file_size),
+                                   "Content-Disposition": f'attachment; filename="{name}"'},
+                )
+            except PublishError as exc:
+                if "413" in str(exc):
+                    raise PublishError("WordPress refused the video because it is larger than the site's upload limit "
+                                       "(upload_max_filesize / client_max_body_size). Raise the limit or use a smaller "
+                                       "file.", retryable=False) from exc
+                raise
+            cached = {"id": media.get("id"), "url": media.get("source_url")}
+            if not cached["url"]:
+                raise PublishError("WordPress stored the video but did not return its address", retryable=False)
+        src = html.escape(str(cached["url"]), quote=True)
+        block = (f'<!-- wp:video --><figure class="wp-block-video"><video controls preload="metadata" src="{src}">'
+                 f'</video></figure><!-- /wp:video -->')
+        return block, {str(video.id): cached}
+
+    def publish(self, article, publication, mode, client, options=None) -> RemoteResult:
         media_id = self._featured_media(article, publication, client)
+        video_block, video_cache = self._video_block(article, publication, client)
         body = {
             "title": article.headline,
-            "content": render_article_html(article, include_header=False, include_featured=False),
+            "content": video_block + render_article_html(article, include_header=False, include_featured=False),
             "excerpt": article.excerpt or article.seo_description or "",
             "slug": article.slug,
             "status": "draft" if mode == "draft" else "publish",
@@ -169,6 +226,8 @@ class WordPressConnector:
         details = dict((publication.details or {}) if publication else {})
         if media_id and article.featured_image:
             details.setdefault("media", {})[str(article.featured_image.id)] = media_id
+        if video_cache:
+            details["videos"] = {**(details.get("videos") or {}), **video_cache}
         return RemoteResult(str(post.get("id")), post.get("link"), "draft" if post.get("status") == "draft" else "published", details)
 
     def unpublish(self, article, publication, client) -> RemoteResult:
@@ -193,6 +252,8 @@ class WordPressConnector:
 class WebhookConnector:
     """POSTs signed JSON to a custom website. Signature: X-Newswire-Signature: sha256=<hex HMAC>."""
 
+    supports_draft = True
+
     def __init__(self, dest: PublishingDestination):
         if not dest.base_url:
             raise PublishError("Webhook destination needs a URL", retryable=False)
@@ -214,7 +275,7 @@ class WebhookConnector:
         except ValueError:
             return {}
 
-    def publish(self, article, publication, mode, client) -> RemoteResult:
+    def publish(self, article, publication, mode, client, options=None) -> RemoteResult:
         event = "article.updated" if publication and publication.remote_status == "published" else "article.published"
         if mode == "draft":
             event = "article.draft"
@@ -241,6 +302,10 @@ def connector_for(dest: PublishingDestination):
         return WordPressConnector(dest)
     if dest.kind == "webhook":
         return WebhookConnector(dest)
+    if dest.kind in ("facebook", "youtube"):
+        from app.publishing.social import FacebookConnector, YouTubeConnector
+
+        return FacebookConnector(dest) if dest.kind == "facebook" else YouTubeConnector(dest)
     raise PublishError(f"Unknown destination kind {dest.kind}", retryable=False)
 
 

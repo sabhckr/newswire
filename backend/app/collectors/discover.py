@@ -25,7 +25,7 @@ from app.collectors.page_meta import clean_page_title, fetch_page_metadata, look
 from app.collectors.parsers import FeedParseError, parse_feed
 from app.core.config import get_settings
 from app.core.db import utcnow
-from app.core.http import ResponseTooLarge, UnsafeURLError, describe_error, make_client, safe_request
+from app.core.http import ResponseTooLarge, UnsafeURLError, describe_error, describe_http_status, make_client, safe_request
 
 FEED_TYPES = {
     "application/rss+xml": "rss",
@@ -57,7 +57,7 @@ def _homepage_links(client: httpx.Client, url: str, respect_robots: bool) -> tup
     except (UnsafeURLError, ResponseTooLarge, httpx.HTTPError) as exc:
         return [], None, describe_error(exc)
     if resp.status_code != 200:
-        return [], None, f"HTTP {resp.status_code}"
+        return [], None, describe_http_status(resp)
     soup = BeautifulSoup(resp.content, "html.parser")
     title = soup.title.string.strip() if soup.title and soup.title.string else None
     found = []

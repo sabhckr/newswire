@@ -14,7 +14,7 @@ class PublishingDestination(UUIDPk, Timestamps, Base):
     __tablename__ = "publishing_destinations"
 
     name: Mapped[str] = mapped_column(String(120))
-    kind: Mapped[str] = mapped_column(String(16))  # builtin | wordpress | webhook
+    kind: Mapped[str] = mapped_column(String(16))  # builtin | wordpress | webhook | facebook | youtube
     base_url: Mapped[str | None] = mapped_column(String(2048))
     username: Mapped[str | None] = mapped_column(String(200))
     secret_encrypted: Mapped[str | None] = mapped_column(Text)  # never returned by the API
@@ -49,6 +49,9 @@ class PublishingJob(UUIDPk, Timestamps, Base):
     remote_url: Mapped[str | None] = mapped_column(String(2048))
     requested_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id", ondelete="SET NULL"))
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Per-destination choices: Facebook format (post | reel), YouTube privacy, social caption,
+    # and the website jobs of the same request that a social post waits for (its link).
+    options: Mapped[dict | None] = mapped_column(JSONType)
 
     destination: Mapped[PublishingDestination] = relationship(lazy="joined")
 

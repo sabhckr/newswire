@@ -6,6 +6,7 @@ import {
   CircleDot,
   Clock,
   Eye,
+  EyeOff,
   FileEdit,
   Loader2,
   PauseCircle,
@@ -26,6 +27,10 @@ const MAP: Record<string, Spec> = {
   scheduled: { tone: "accent", icon: Clock, label: "Scheduled" },
   published: { tone: "success", icon: CheckCircle2, label: "Published" },
   unpublished: { tone: "neutral", icon: CircleDashed, label: "Unpublished" },
+  // remote state on Facebook / YouTube
+  processing: { tone: "info", icon: Loader2, label: "Processing" },
+  private: { tone: "warning", icon: EyeOff, label: "Private" },
+  deleted: { tone: "neutral", icon: XCircle, label: "Deleted there" },
   archived: { tone: "neutral", icon: Archive, label: "Archived" },
   // assignments
   active: { tone: "success", icon: CircleDot, label: "Active" },
