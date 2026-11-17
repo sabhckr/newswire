@@ -123,6 +123,21 @@ processes in the foreground.
   workers is safe but rarely needed.
 * `NEWSWIRE_EMBEDDED_SCHEDULER=true` runs the jobs inside the API process instead. It is
   meant for single-process demos. Do not combine it with a separate worker.
+* **Scheduled posts need the worker (or the embedded scheduler) running at the set time.** If it
+  is down, they go out within a minute of it starting again.
+
+## Videos, Facebook and YouTube
+
+* `NEWSWIRE_PUBLIC_BASE_URL` must be the address people use. Facebook and Google send the
+  browser back to `NEWSWIRE_PUBLIC_BASE_URL/api/v1/publishing/oauth/callback`, and Reels,
+  YouTube and webhooks fetch videos from `/media/…` on that address, so it must be reachable
+  from the internet (https) for Facebook Reels.
+* `NEWSWIRE_MAX_VIDEO_BYTES` (default 1,000,000,000) caps uploaded videos. Videos are stored
+  under `storage/images/videos/`; unfinished uploads in `storage/uploads/videos/` are removed
+  after 24 hours. Leave room on the disk.
+* Browsers upload videos in 8 MB pieces, so the default 20 MB request limit in the Caddy and
+  nginx templates is enough. The larger limit on `/api/v1/videos` is only for scripts that send a
+  whole file at once.
 
 ## Upgrading
 
@@ -150,6 +165,8 @@ processes in the foreground.
 | API exits with "Run `alembic upgrade head`" | The database has no schema yet: `python -m app.cli migrate`. |
 | Worker shows "stale" or "not running" | Its heartbeat is older than 2 minutes, or it never started. Check `docker compose logs worker` or `journalctl -u newswire-worker`. |
 | A source says *Blocked by robots.txt* | The publisher disallows automated access to that feed. NEWSWIRE will not fetch it. Ask the publisher or remove the source. |
+| **Every** source fails | The NEWSWIRE server cannot reach the sites; the error on any source names the cause. *Connection timed out*: the server's internet connection or firewall. *Resolves to 198.18.x.x*: a VPN or proxy app in fake-IP mode (Clash, sing-box, Surge, Shadowrocket); switch it to real-IP mode or exclude the server. *Resolves to 127.0.0.1 / 0.0.0.0*: a DNS filter or ad blocker. *DNS lookup failed*: the server's DNS. From a shell on the server, `curl -I https://www.prothomalo.com/stories.rss` should print `HTTP/2 200`. |
+| *HTTP 403 … bot protection* or *HTTP 403* on many sites | Some publishers refuse whole data-centre networks or put a browser check in front of everything. NEWSWIRE does not get around it. Run NEWSWIRE on a connection the publishers accept (for example a server or office line in Bangladesh), or ask the publisher to allow its user agent. |
 | A feed on your LAN fails with "private network address" | The SSRF guard blocks private addresses. For development only, set `NEWSWIRE_ALLOW_PRIVATE_NETWORK=true`. |
 | Image search returns nothing | Openverse limits anonymous clients. Add free API credentials (`NEWSWIRE_OPENVERSE_CLIENT_ID/SECRET`) or use Commons. |
 | `pg_dump: server version mismatch` | Install client tools of the same major version as the server, or set `NEWSWIRE_PG_DUMP_PATH`. |

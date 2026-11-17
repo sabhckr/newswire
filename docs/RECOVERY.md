@@ -11,13 +11,18 @@ Each backup is one `tar.gz` archive in `storage/backups/` (`/data/backups` in Do
 | `database.dump` | `pg_dump --format=custom` of the whole database (PostgreSQL) |
 | `database.sqlite` | a consistent copy made with SQLite's backup API (SQLite installs) |
 | `config.json` | sources, assignments, settings, categories, destinations, readable without a database (no secrets) |
-| `images/…` | downloaded and uploaded images (optional; on by default) |
+| `images/…` | downloaded and uploaded images (optional; on by default). **Uploaded videos (`images/videos/`) are left out**: they can be gigabytes each |
 
 The database dump holds everything else: users, sessions, news items, matches, clusters,
 articles and their versions, publishing history and the audit log. Publishing credentials are
 stored encrypted with `NEWSWIRE_SECRET_KEY`. **Keep a copy of that key (and the backup
 encryption key, if you use one) somewhere other than the server.** Without the secret key, a
 restore still works, but you must re-enter WordPress passwords and webhook secrets.
+
+Back up `storage/images/videos/` separately (for example with `rsync`) if you need the videos
+after a restore. Without them, articles keep their video entry; publishing one again says the
+file is missing and asks you to upload it again. Posts already on Facebook, YouTube or WordPress
+are not affected.
 
 ## Making backups
 

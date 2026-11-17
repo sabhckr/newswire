@@ -73,6 +73,67 @@ password is encrypted at rest and never shown again. *Test connection* calls `/u
 * *Publish as draft* creates a WordPress draft. *Unpublish* sets the post back to draft. It is
   never deleted.
 * *Sync status* reads the post's current state, for example if someone trashed it in WordPress.
+* An article's uploaded video is added to the WordPress media library once and placed at the top
+  of the post. WordPress limits upload size (`upload_max_filesize` in PHP); a refusal is shown
+  with that hint.
+
+### Facebook Page
+
+Posts to a Facebook **Page** you manage (not a personal profile; Facebook does not allow apps
+to post there). You need your own Facebook app, once:
+
+1. At [developers.facebook.com/apps](https://developers.facebook.com/apps/) create an app with
+   the use case for managing a Page (posts and Reels).
+2. Under *Facebook Login → Settings*, add the **redirect address** that NEWSWIRE shows in the
+   *Add destination* dialog to *Valid OAuth Redirect URIs*. It is
+   `NEWSWIRE_PUBLIC_BASE_URL` + `/api/v1/publishing/oauth/callback`, so that setting must be
+   the address people use (with https in production).
+3. In NEWSWIRE: *Publishing → Destinations → Add destination → Facebook Page*, paste the **App
+   ID** and **App secret**, then *Save and connect*. Sign in with an account that manages the
+   Page and allow every permission (`pages_show_list`, `pages_read_engagement`,
+   `pages_manage_posts`). If you manage several Pages, choose one. Add one destination per Page.
+
+Until the app passes Meta's App Review it works for people who have a role on the app (admin,
+developer or tester), which is enough when your own team runs NEWSWIRE.
+
+| Choice | What is posted |
+|---|---|
+| **Post** | the caption (or headline and excerpt) with the link to the article on your website when it is published there; otherwise the featured image as a photo post; otherwise text only |
+| **Reel** | the article's video with the caption. Facebook requires a vertical video of 3–90 seconds; NEWSWIRE checks this before queuing |
+
+Facebook has no drafts. *Unpublish* deletes the post (Facebook cannot hide a post through the
+API). Updating a published article updates the post's text.
+
+### YouTube channel
+
+Uploads the article's video to your channel. You need a Google Cloud project, once:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/apis/library/youtube.googleapis.com)
+   create a project and enable **YouTube Data API v3**.
+2. Set up the OAuth consent screen (External) and **publish** it. While it is in *Testing*,
+   Google ends the connection after 7 days and you must connect again.
+3. *Credentials → Create credentials → OAuth client ID → Web application*; add the redirect
+   address from the dialog as an *Authorized redirect URI*.
+4. In NEWSWIRE add a **YouTube channel** destination with the Client ID and Client secret, then
+   *Save and connect* and pick the channel.
+
+* Title, description (caption, or excerpt and link to your article), tags and visibility
+  (public, unlisted, private) come from the article and the Publish card. Vertical videos up to
+  3 minutes become Shorts.
+* Until Google audits the project, YouTube keeps every API upload **private**. NEWSWIRE says so
+  on the publication; the fix is Google's audit form, not a setting.
+* The free quota is about 6 uploads a day (each costs 1,600 of 10,000 units). A
+  `quotaExceeded` error is not retried; try the next day.
+* *Unpublish* makes the video private; publishing again sets the visibility you choose then.
+
+### Videos
+
+Upload a video in the editor's **Video** card (MP4 or MOV, up to `NEWSWIRE_MAX_VIDEO_BYTES`,
+default 1 GB). The browser sends it in 8 MB pieces through `/api/v1/videos/uploads` and
+continues after a dropped connection. Scripts may instead POST the whole file to
+`/api/v1/videos` when they talk to the API directly (not through the web app's proxy, which cuts
+request bodies at 10 MB). Videos are not transcoded: upload what the platforms accept (H.264
+and AAC in MP4 is safest).
 
 ### Signed webhook
 
@@ -130,6 +191,15 @@ function verify(secret, rawBody, header) {
   return got.length === expected.length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(got));
 }
 ```
+
+## Publishing to several places
+
+The Publish card sends one request for every ticked destination
+(`POST /api/v1/articles/{id}/publish-many`). All destinations are checked first; if any cannot
+take the article, nothing is queued. Facebook and YouTube jobs wait up to 30 minutes for the
+website job in the same request so their posts can link to the article. Uploads that take
+minutes (YouTube, Reels, WordPress with a video) run in the background and the card follows
+them. A scheduled request keeps the article *scheduled* until every destination has run.
 
 ## The publishing queue
 

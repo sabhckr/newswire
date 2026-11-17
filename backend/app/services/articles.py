@@ -26,12 +26,14 @@ from app.models import (
     StoryCluster,
     StoryClusterItem,
     Tag,
+    VideoAsset,
 )
 from app.models.articles import article_assignments
 from app.security import permissions as P
 from app.services.audit import record
 
-CONTENT_FIELDS = {"headline", "subtitle", "body_html", "body_json", "featured_image_id", "featured_image_caption"}
+CONTENT_FIELDS = {"headline", "subtitle", "body_html", "body_json", "featured_image_id", "featured_image_caption",
+                  "video_id"}
 
 
 def unique_slug(db: Session, base: str, exclude_id: uuid.UUID | None = None) -> str:
@@ -100,6 +102,14 @@ def apply_changes(db: Session, article: Article, data: dict[str, Any], current) 
             article.featured_image_id = fid
             article.featured_image = db.get(ImageAsset, fid) if fid else None
             changed.append("featured_image_id")
+    if "video_id" in data:
+        vid = data["video_id"]
+        if vid and db.get(VideoAsset, vid) is None:
+            raise not_found("Video")
+        if article.video_id != vid:
+            article.video_id = vid
+            article.video = db.get(VideoAsset, vid) if vid else None
+            changed.append("video_id")
     if "geo_entity_ids" in data:
         article.geo_entity_ids = [str(x) for x in (data["geo_entity_ids"] or [])]
         changed.append("geo_entity_ids")
@@ -144,8 +154,7 @@ def apply_changes(db: Session, article: Article, data: dict[str, Any], current) 
         article.version += 1
         content_changed = bool(CONTENT_FIELDS & set(changed)) or "images" in changed
         if content_changed and article.status in EDIT_RESETS_APPROVAL and not current.can(P.ARTICLES_APPROVE):
-            if article.status == "scheduled":
-                cancel_scheduled_jobs(db, article, current, "content edited, so the article needs approval again")
+            cancel_scheduled_jobs(db, article, current, "content edited, so the article needs approval again")
             article.status = "in_review"
             article.approved_at = None
             article.approved_by_id = None
@@ -197,8 +206,10 @@ def transition(db: Session, article: Article, target: str, current, *, scheduled
     if target in ("draft", "in_review"):
         article.approved_at = None
         article.approved_by_id = None
-    if article.status == "scheduled" and target != "published":
-        cancel_scheduled_jobs(db, article, current, f"article moved from scheduled to {target}")
+    # Leaving the approved states stops every queued scheduled publication (a published article can
+    # still have a Facebook post or YouTube upload scheduled for later).
+    if (article.status == "scheduled" and target != "published") or target in ("draft", "in_review", "archived"):
+        cancel_scheduled_jobs(db, article, current, f"article moved from {article.status} to {target}")
     article.status = target
     db.flush()
     return article

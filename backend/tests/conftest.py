@@ -26,6 +26,8 @@ from sqlalchemy import text  # noqa: E402
 
 import app.models  # noqa: E402,F401
 from app.collectors import robots  # noqa: E402
+
+robots.RETRY_DELAY_SECONDS = 0  # robots.txt failures are retried once; no need to wait in tests
 from app.core.config import get_settings  # noqa: E402
 from app.core.db import Base, SessionLocal, make_engine, set_engine  # noqa: E402
 from app.geography.gazetteer import invalidate_gazetteer  # noqa: E402

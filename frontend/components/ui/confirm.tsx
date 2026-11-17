@@ -9,6 +9,8 @@ type ConfirmOptions = {
   title: string;
   body?: React.ReactNode;
   confirmLabel?: string;
+  /** Use when the action itself is a "cancel", so the two buttons are not both called Cancel. */
+  cancelLabel?: string;
   destructive?: boolean;
 };
 
@@ -38,7 +40,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             footer={
               <>
                 <Button variant="outline" onClick={() => close(false)}>
-                  Cancel
+                  {opts.cancelLabel ?? "Cancel"}
                 </Button>
                 <Button variant={opts.destructive ? "danger" : "primary"} onClick={() => close(true)} autoFocus>
                   {opts.confirmLabel ?? "Confirm"}
