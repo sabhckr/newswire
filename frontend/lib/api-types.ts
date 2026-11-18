@@ -234,15 +234,17 @@ export interface ConnectionOut {
   redirect_uri: string;
   connected_at?: string | null;
   pages?: SocialPageOut[];
+  shared_app?: boolean;
 }
 
 export interface DestinationIn {
   name: string;
-  kind: "wordpress" | "webhook" | "facebook" | "youtube";
+  kind: "website" | "wordpress" | "webhook" | "facebook" | "instagram" | "youtube";
   base_url?: string | null;
   username?: string | null;
   secret?: string | null;
   client_id?: string | null;
+  body_format?: "auto" | "html" | "text" | null;
   login_config_id?: string | null;
   is_active?: boolean;
   is_commercial?: boolean;
@@ -263,6 +265,7 @@ export interface DestinationOut {
   last_check_status: string | null;
   created_at: string;
   connection?: ConnectionOut | null;
+  website?: WebsiteOut | null;
 }
 
 export interface DestinationUpdateIn {
@@ -271,6 +274,7 @@ export interface DestinationUpdateIn {
   username?: string | null;
   secret?: string | null;
   client_id?: string | null;
+  body_format?: "auto" | "html" | "text" | null;
   login_config_id?: string | null;
   is_active?: boolean | null;
   is_commercial?: boolean | null;
@@ -474,6 +478,22 @@ export interface Message {
   message?: string | null;
 }
 
+export interface MetaAppIn {
+  app_id: string;
+  secret?: string | null;
+  login_config_id?: string | null;
+  instagram_login_config_id?: string | null;
+}
+
+export interface MetaAppOut {
+  configured: boolean;
+  app_id?: string | null;
+  has_secret?: boolean;
+  login_config_id?: string | null;
+  instagram_login_config_id?: string | null;
+  redirect_uri: string;
+}
+
 export interface NewsGeoOut {
   id: string;
   entity_id: string | null;
@@ -667,6 +687,15 @@ export interface TagOut {
   slug: string;
 }
 
+export interface TeachStatusOut {
+  state: "starting" | "running" | "done" | "failed" | "cancelled" | "idle";
+  mode?: string | null;
+  step?: number;
+  total?: number;
+  message?: string | null;
+  error?: string | null;
+}
+
 export interface TransitionIn {
   target: "draft" | "in_review" | "approved" | "scheduled" | "published" | "unpublished" | "archived";
   scheduled_at?: string | null;
@@ -726,4 +755,14 @@ export interface VideoUploadStartIn {
   filename?: string | null;
   title?: string | null;
   size: number;
+}
+
+export interface WebsiteOut {
+  platform?: "wordpress" | "custom" | null;
+  taught?: boolean;
+  taught_at?: string | null;
+  new_post_url?: string | null;
+  fields?: string[];
+  body_format?: string;
+  wp_user?: string | null;
 }

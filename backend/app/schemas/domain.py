@@ -639,13 +639,18 @@ class PublishManyIn(BaseModel):
 
 class DestinationIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    kind: Literal["wordpress", "webhook", "facebook", "youtube"]
-    base_url: str | None = Field(default=None, max_length=2048, description="Website and webhook destinations")
-    username: str | None = Field(default=None, max_length=200)
+    kind: Literal["website", "wordpress", "webhook", "facebook", "instagram", "youtube"]
+    base_url: str | None = Field(default=None, max_length=2048,
+                                 description="Website (admin login address), WordPress site and webhook destinations")
+    username: str | None = Field(default=None, max_length=200, description="Admin email or username")
     secret: str | None = Field(default=None, max_length=500,
-                               description="Write-only: WordPress application password, webhook secret, "
-                                           "Facebook App secret or Google Client secret")
-    client_id: str | None = Field(default=None, max_length=200, description="Facebook App ID or Google Client ID")
+                               description="Write-only: admin password (website), WordPress application password, "
+                                           "webhook secret, Facebook App secret or Google Client secret")
+    client_id: str | None = Field(default=None, max_length=200,
+                                  description="Google Client ID, or a Facebook App ID for this destination only "
+                                              "(otherwise the shared Meta app from Settings is used)")
+    body_format: Literal["auto", "html", "text"] | None = Field(
+        default=None, description="Website (robot browser): how the article text is put into the site's text box")
     login_config_id: str | None = Field(default=None, max_length=100,
                                         description="Optional Facebook Login for Business configuration ID")
     is_active: bool = True
@@ -659,6 +664,7 @@ class DestinationUpdateIn(BaseModel):
     username: str | None = None
     secret: str | None = Field(default=None, max_length=500)
     client_id: str | None = Field(default=None, max_length=200)
+    body_format: Literal["auto", "html", "text"] | None = None
     login_config_id: str | None = Field(default=None, max_length=100)
     is_active: bool | None = None
     is_commercial: bool | None = None
@@ -680,8 +686,47 @@ class ConnectionOut(BaseModel):
     login_config_id: str | None = None
     redirect_uri: str
     connected_at: str | None = None
-    # Facebook: the Pages to choose from after signing in with access to more than one.
+    # Facebook: the Pages (Instagram: the accounts) to choose from after signing in with access to more than one.
     pages: list[SocialPageOut] = []
+    # Facebook and Instagram: signs in with the Meta app from Settings → Integrations.
+    shared_app: bool = False
+
+
+class WebsiteOut(BaseModel):
+    """A website reached through its admin login. Passwords and browser sessions are never returned."""
+
+    platform: Literal["wordpress", "custom"] | None = None
+    taught: bool = False
+    taught_at: str | None = None
+    new_post_url: str | None = None
+    fields: list[str] = []
+    body_format: str = "auto"
+    wp_user: str | None = None
+
+
+class TeachStatusOut(BaseModel):
+    state: Literal["starting", "running", "done", "failed", "cancelled", "idle"]
+    mode: str | None = None
+    step: int = 0
+    total: int = 0
+    message: str | None = None
+    error: str | None = None
+
+
+class MetaAppIn(BaseModel):
+    app_id: str = Field(min_length=3, max_length=64, pattern=r"^\d+$")
+    secret: str | None = Field(default=None, max_length=200, description="Write-only; leave empty to keep the stored one")
+    login_config_id: str | None = Field(default=None, max_length=100)
+    instagram_login_config_id: str | None = Field(default=None, max_length=100)
+
+
+class MetaAppOut(BaseModel):
+    configured: bool
+    app_id: str | None = None
+    has_secret: bool = False
+    login_config_id: str | None = None
+    instagram_login_config_id: str | None = None
+    redirect_uri: str
 
 
 class DestinationOut(ORM):
@@ -698,6 +743,7 @@ class DestinationOut(ORM):
     last_check_status: str | None
     created_at: datetime
     connection: ConnectionOut | None = None
+    website: WebsiteOut | None = None
 
 
 class FacebookPageIn(BaseModel):
