@@ -10,7 +10,7 @@ import calendar
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -35,6 +35,9 @@ class ParsedEntry:
     url: str | None
     guid: str | None = None
     published_at: datetime | None = None
+    # The publication day when the feed gives a date without a time of day (some news sitemaps).
+    # It is not a publication time, but it bounds one: the story is no newer than that day.
+    published_day: date | None = None
     summary: str | None = None
     content: str | None = None
     author: str | None = None
@@ -344,6 +347,16 @@ def _sitemap_time(value: str | None) -> datetime | None:
     return parse_datetime(value)
 
 
+def _sitemap_day(value: str | None) -> date | None:
+    """The day of a bare W3C date (`2026-11-16`), else None."""
+    if not value or not _DATE_ONLY.match(value):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
 def parse_sitemap(content: bytes) -> ParsedFeed:
     head = content[:4000].lower()
     if b"<!doctype" in head or b"<!entity" in head:
@@ -371,7 +384,9 @@ def parse_sitemap(content: bytes) -> ParsedFeed:
         loc = _child_text(url_el, "loc")
         if not loc or not loc.startswith(("http://", "https://")):
             continue
-        published = _sitemap_time(_child_text(url_el, "lastmod"))
+        lastmod = _child_text(url_el, "lastmod")
+        published = _sitemap_time(lastmod)
+        day = _sitemap_day(lastmod)
         title = None
         language = None
         keywords: list[str] = []
@@ -379,7 +394,9 @@ def parse_sitemap(content: bytes) -> ParsedFeed:
         if news is not None:
             news_count += 1
             title = html_to_text(news.findtext(f"{_NEWS}title"))
-            published = _sitemap_time(news.findtext(f"{_NEWS}publication_date")) or published
+            pub_date = news.findtext(f"{_NEWS}publication_date")
+            published = _sitemap_time(pub_date) or published
+            day = _sitemap_day(pub_date) or day
             language = _norm_lang(news.findtext(f"{_NEWS}publication/{_NEWS}language"))
             kw = news.findtext(f"{_NEWS}keywords") or ""
             keywords = [k.strip()[:200] for k in kw.split(",") if k.strip()][:30]
@@ -395,6 +412,7 @@ def parse_sitemap(content: bytes) -> ParsedFeed:
                 url=loc.strip(),
                 guid=loc.strip(),
                 published_at=published,
+                published_day=None if published else day,
                 language=language,
                 categories=keywords,
                 image_urls=[u for u in images if u.startswith(("http://", "https://"))][:10],
