@@ -30,3 +30,6 @@ storage/*
 .DS_Store
 .idea/
 .vscode/
+
+# macOS launchd build (scripts/macos/newswire)
+.next-prod/

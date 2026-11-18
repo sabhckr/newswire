@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# NEWSWIRE on macOS: one command to install, run, update and open the platform.
+#
+#   newswire            open NEWSWIRE in the browser (starts it first if needed)
+#   newswire install    first-time setup: .env, Python and Node packages, web build, services
+#   newswire start | stop | restart | status
+#   newswire logs [api|worker|web]
+#   newswire update     pull the latest code from GitHub, rebuild and restart
+#   newswire uninstall  remove the background services (keeps the code, database and data)
+#
+# Runs the API, the collection worker and the web UI as launchd agents
+# (~/Library/LaunchAgents/com.newswire.*.plist): they start when you log in and restart if they
+# stop. Needs PostgreSQL (brew services start postgresql@17), Python 3.13 and Node.js 20+.
+set -euo pipefail
+
+SELF="$(readlink -f "$0" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$0")"
+ROOT="$(cd "$(dirname "$SELF")/../.." && pwd)"
+URL="http://localhost:${NEWSWIRE_HTTP_PORT:-3000}"
+SERVICES=(api worker web)
+AGENTS="$HOME/Library/LaunchAgents"
+LOGS="$ROOT/storage/logs"
+DOMAIN="gui/$(id -u)"
+DIST=".next-prod"
+
+say() { printf '\033[1m%s\033[0m\n' "$*"; }
+die() { printf 'newswire: %s\n' "$*" >&2; exit 1; }
+plist() { echo "$AGENTS/com.newswire.$1.plist"; }
+loaded() { launchctl print "$DOMAIN/com.newswire.$1" >/dev/null 2>&1; }
+healthy() { curl -sf --max-time 3 "$URL/api/v1/health" >/dev/null 2>&1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 is not installed. $2"; }
+
+python_bin() {
+  for p in python3.13 python3; do
+    if command -v "$p" >/dev/null && "$p" -c 'import sys; sys.exit(sys.version_info < (3, 12))'; then
+      command -v "$p"; return
+    fi
+  done
+  die "Python 3.13 is needed: brew install python@3.13"
+}
+
+write_env() {
+  [ -f "$ROOT/.env" ] && return
+  say "Creating .env"
+  local key
+  if [ -s "$ROOT/storage/.secret_key" ]; then key="$(cat "$ROOT/storage/.secret_key")"
+  else key="$("$(python_bin)" -c 'import secrets; print(secrets.token_urlsafe(64))')"; fi
+  (umask 077; cat > "$ROOT/.env" <<EOF
+# Local install on this Mac, run by launchd (scripts/macos/newswire).
+NEWSWIRE_ENV=production
+NEWSWIRE_SECRET_KEY=$key
+NEWSWIRE_DATABASE_URL=postgresql+psycopg://localhost/newswire
+NEWSWIRE_PUBLIC_BASE_URL=$URL
+NEWSWIRE_COOKIE_SECURE=false
+NEWSWIRE_EMBEDDED_SCHEDULER=false
+NEWSWIRE_PG_DUMP_PATH=$(command -v pg_dump || echo pg_dump)
+NEWSWIRE_PG_RESTORE_PATH=$(command -v pg_restore || echo pg_restore)
+EOF
+  )
+}
+
+install_packages() {
+  say "Installing Python packages"
+  [ -x "$ROOT/backend/.venv/bin/python" ] || "$(python_bin)" -m venv "$ROOT/backend/.venv"
+  "$ROOT/backend/.venv/bin/pip" install -q --upgrade pip
+  "$ROOT/backend/.venv/bin/pip" install -q -r "$ROOT/backend/requirements.lock"
+  say "Installing Node packages"
+  (cd "$ROOT/frontend" && npm ci --no-audit --no-fund --loglevel=error)
+}
+
+build_web() {
+  say "Building the web app (a minute or two)"
+  cd "$ROOT/frontend"
+  # `next build` rewrites these two tracked files for a custom build folder; put back whatever
+  # was there so the build leaves no changes in git.
+  local keep=(next-env.d.ts tsconfig.json) saved
+  saved="$(mktemp -d)"
+  for f in "${keep[@]}"; do cp "$f" "$saved/$f"; done
+  NEXT_TELEMETRY_DISABLED=1 NEWSWIRE_BACKEND_URL=http://127.0.0.1:8000 NEWSWIRE_NEXT_DIST_DIR="$DIST" \
+    npm run --silent build >"$LOGS/build.log" 2>&1 || { for f in "${keep[@]}"; do cp "$saved/$f" "$f"; done; die "web build failed, see $LOGS/build.log"; }
+  for f in "${keep[@]}"; do cp "$saved/$f" "$f"; done
+  rm -rf "$saved"
+  # Standalone output needs its static files and public folder next to server.js.
+  rm -rf "$DIST/standalone/$DIST/static" "$DIST/standalone/public"
+  cp -R "$DIST/static" "$DIST/standalone/$DIST/static"
+  cp -R public "$DIST/standalone/public"
+  cd "$ROOT"
+}
+
+write_agent() { # name, workdir, program arguments (XML), extra environment (XML)
+  cat > "$(plist "$1")" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.newswire.$1</string>
+  <key>WorkingDirectory</key><string>$2</string>
+  <key>ProgramArguments</key><array>$3</array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>$4
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$LOGS/$1.log</string>
+  <key>StandardErrorPath</key><string>$LOGS/$1.log</string>
+</dict></plist>
+EOF
+}
+
+write_agents() {
+  mkdir -p "$AGENTS" "$LOGS"
+  local py="$ROOT/backend/.venv/bin/python" node
+  node="$(command -v node)" || die "Node.js is needed: brew install node"
+  write_agent api "$ROOT/backend" \
+    "<string>/bin/sh</string><string>-c</string><string>'$py' -m app.cli migrate &amp;&amp; exec '$ROOT/backend/.venv/bin/uvicorn' app.main:app --host 127.0.0.1 --port 8000 --proxy-headers</string>" ""
+  write_agent worker "$ROOT/backend" "<string>$py</string><string>-m</string><string>app.worker</string>" ""
+  write_agent web "$ROOT/frontend/$DIST/standalone" "<string>$node</string><string>server.js</string>" "
+    <key>PORT</key><string>${NEWSWIRE_HTTP_PORT:-3000}</string><key>HOSTNAME</key><string>127.0.0.1</string>
+    <key>NODE_ENV</key><string>production</string><key>NEXT_TELEMETRY_DISABLED</key><string>1</string>"
+}
+
+wait_healthy() {
+  for _ in $(seq 1 60); do healthy && return 0; sleep 1; done
+  return 1
+}
+
+cmd_start() {
+  [ -f "$(plist api)" ] || die "not installed yet: run  newswire install"
+  pg_isready -q 2>/dev/null || { say "Starting PostgreSQL"; brew services start postgresql@17 >/dev/null 2>&1 || true; }
+  for s in "${SERVICES[@]}"; do loaded "$s" || launchctl bootstrap "$DOMAIN" "$(plist "$s")"; done
+  wait_healthy || die "NEWSWIRE did not come up; see  newswire logs api"
+  say "NEWSWIRE is running at $URL"
+}
+
+cmd_stop() {
+  for s in "${SERVICES[@]}"; do loaded "$s" && launchctl bootout "$DOMAIN/com.newswire.$s" || true; done
+  say "NEWSWIRE stopped (it starts again at login, or with  newswire start)"
+}
+
+cmd_restart() {
+  for s in "${SERVICES[@]}"; do
+    if loaded "$s"; then launchctl kickstart -k "$DOMAIN/com.newswire.$s"; else launchctl bootstrap "$DOMAIN" "$(plist "$s")"; fi
+  done
+  wait_healthy || die "NEWSWIRE did not come up; see  newswire logs api"
+  say "NEWSWIRE restarted"
+}
+
+cmd_status() {
+  for s in "${SERVICES[@]}"; do
+    if loaded "$s"; then
+      printf '%-7s %s\n' "$s" "$(launchctl print "$DOMAIN/com.newswire.$s" | awk -F'= ' '/^\tstate =/{print $2; exit}')"
+    else printf '%-7s %s\n' "$s" "not running"; fi
+  done
+  if healthy; then echo "health  ok  ($URL)"; else echo "health  not responding"; fi
+}
+
+cmd_open() {
+  healthy || cmd_start
+  if [ -d "/Applications/Google Chrome.app" ]; then open -a "Google Chrome" "$URL"; else open "$URL"; fi
+}
+
+cmd_install() {
+  need pg_isready "Install PostgreSQL: brew install postgresql@17 && brew services start postgresql@17"
+  need npm "Install Node.js: brew install node"
+  pg_isready -q || brew services start postgresql@17 >/dev/null 2>&1 || true
+  psql -lqt 2>/dev/null | cut -d'|' -f1 | grep -qw newswire || { say "Creating database"; createdb newswire; }
+  mkdir -p "$LOGS"
+  write_env
+  install_packages
+  build_web
+  write_agents
+  cmd_restart
+  say "Installed. Open it with:  newswire"
+}
+
+cmd_update() {
+  say "Pulling the latest code"
+  git -C "$ROOT" pull --ff-only
+  install_packages
+  build_web
+  write_agents
+  cmd_restart   # the API runs database migrations as it starts
+}
+
+cmd_uninstall() {
+  cmd_stop
+  for s in "${SERVICES[@]}"; do rm -f "$(plist "$s")"; done
+  say "Background services removed. Code, database and $ROOT/storage are untouched."
+}
+
+case "${1:-open}" in
+  open) cmd_open ;;
+  install) cmd_install ;;
+  start) cmd_start ;;
+  stop) cmd_stop ;;
+  restart) cmd_restart ;;
+  status) cmd_status ;;
+  logs) tail -n 50 -f "$LOGS/${2:-api}.log" ;;
+  update) cmd_update ;;
+  uninstall) cmd_uninstall ;;
+  -h|--help|help) sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown command '$1' (try: newswire help)" ;;
+esac
