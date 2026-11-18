@@ -8,6 +8,7 @@ import {
   KeyRound,
   ListChecks,
   LogIn,
+  MousePointerClick,
   Pencil,
   Play,
   Plug,
@@ -25,6 +26,7 @@ import { toast } from "sonner";
 
 import { DestinationDialog, startConnect } from "@/components/publishing/destination-dialog";
 import { KIND_ICON, KIND_LABEL, isSocial } from "@/components/publishing/kinds";
+import { TeachDialog } from "@/components/publishing/teach-dialog";
 import { ACTION_LABEL, JobActions, JobStatus, useInvalidatePublishing } from "@/components/publishing/jobs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -284,7 +286,8 @@ function useConnectResult(destinations: DestinationOut[] | undefined) {
       handled.current = key;
       const d = destinations.find((x) => x.id === connected);
       if (d?.connection?.connected) toast.success(`${d.name} is connected${d.connection.account_name ? ` to ${d.connection.account_name}` : ""}.`);
-      else if (d?.connection?.pages?.length) toast.info(`Signed in. Now choose which Facebook Page ${d.name} posts to.`);
+      else if (d?.connection?.pages?.length)
+        toast.info(`Signed in. Now choose which ${d.kind === "instagram" ? "Instagram account" : "Facebook Page"} ${d.name} posts to.`);
       else toast.success("Connected.");
     }
     qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
@@ -295,11 +298,12 @@ function useConnectResult(destinations: DestinationOut[] | undefined) {
 function PageChooser({ d }: { d: DestinationOut }) {
   const qc = useQueryClient();
   const pages = d.connection?.pages ?? [];
+  const what = d.kind === "instagram" ? "Instagram account" : "Facebook Page";
   const [pageId, setPageId] = useState(pages[0]?.id ?? "");
   const choose = useMutation({
     mutationFn: () => api<DestinationOut>(`/publishing/destinations/${d.id}/facebook-page`, { body: { page_id: pageId } }),
     onSuccess: (r) => {
-      toast.success(`${r.name} now posts to ${r.connection?.account_name ?? "the Page"}.`);
+      toast.success(`${r.name} now posts to ${r.connection?.account_name ?? `the ${what}`}.`);
       qc.invalidateQueries({ queryKey: ["publishing-destinations"] });
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -307,8 +311,8 @@ function PageChooser({ d }: { d: DestinationOut }) {
   return (
     <div className="mx-4 mb-2 flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 p-2.5 sm:flex-row sm:items-end">
       <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
-        <span className="font-medium">Choose the Facebook Page to post to</span>
-        <Select value={pageId} onChange={(e) => setPageId(e.target.value)} aria-label="Facebook Page">
+        <span className="font-medium">Choose the {what} to post to</span>
+        <Select value={pageId} onChange={(e) => setPageId(e.target.value)} aria-label={what}>
           {pages.map((pg) => (
             <option key={pg.id} value={pg.id}>
               {pg.name}
@@ -317,7 +321,7 @@ function PageChooser({ d }: { d: DestinationOut }) {
         </Select>
       </label>
       <Button size="sm" variant="primary" disabled={!pageId} loading={choose.isPending} onClick={() => choose.mutate()}>
-        Use this Page
+        Use this {d.kind === "instagram" ? "account" : "Page"}
       </Button>
     </div>
   );
@@ -333,6 +337,7 @@ function DestinationsTab() {
   const globalAuto = !!policy.data?.values.publishing?.auto_publish_policy;
   const [editing, setEditing] = useState<DestinationOut | null>(null);
   const [open, setOpen] = useState(false);
+  const [teaching, setTeaching] = useState<DestinationOut | null>(null);
   useConnectResult(destinations.isFetching ? undefined : destinations.data);
   const [connecting, setConnecting] = useState<string | null>(null);
   const connect = async (d: DestinationOut) => {
@@ -375,8 +380,8 @@ function DestinationsTab() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted">
-          Add your website (WordPress username and application password), a Facebook Page or a YouTube channel. Credentials are stored
-          encrypted on the server and are never sent back to the browser.
+          Add your website with its own admin login, a Facebook Page, an Instagram account or a YouTube channel. Passwords and sign-ins
+          are stored encrypted in NEWSWIRE and are never sent back to the browser.
         </p>
         {manage ? (
           <Button
@@ -397,7 +402,7 @@ function DestinationsTab() {
         <ErrorState error={destinations.error} onRetry={() => destinations.refetch()} />
       ) : !destinations.data?.length ? (
         <Card>
-          <EmptyState icon={Plug} title="No destinations" description="Add your website, a Facebook Page or a YouTube channel to publish outside the built-in site." />
+          <EmptyState icon={Plug} title="No destinations" description="Add your website, a Facebook Page, an Instagram account or a YouTube channel to publish outside the built-in site." />
         </Card>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2">
@@ -407,6 +412,8 @@ function DestinationsTab() {
             const social = isSocial(d.kind);
             const conn = d.connection;
             const choosingPage = social && !conn?.connected && !!conn?.pages?.length;
+            const site = d.kind === "website" ? d.website : null;
+            const needsTeach = !!site && site.platform === "custom" && !site.taught;
             return (
               <li key={d.id}>
                 <Card className="flex h-full flex-col">
@@ -445,6 +452,17 @@ function DestinationsTab() {
                       <Badge tone={conn?.connected ? "success" : "warning"} icon={conn?.connected ? CheckCircle2 : Unplug}>
                         {conn?.connected ? "Connected" : choosingPage ? "Choose a Page" : "Not connected"}
                       </Badge>
+                    ) : site ? (
+                      <>
+                        <Badge tone="neutral" icon={KeyRound}>
+                          {site.platform === "wordpress" ? "WordPress" : "Admin panel"}
+                        </Badge>
+                        {site.platform === "custom" ? (
+                          <Badge tone={site.taught ? "success" : "warning"} icon={site.taught ? CheckCircle2 : MousePointerClick}>
+                            {site.taught ? "Post form learned" : "Needs teaching"}
+                          </Badge>
+                        ) : null}
+                      </>
                     ) : d.kind !== "builtin" ? (
                       <Badge tone={d.has_secret ? "neutral" : d.kind === "wordpress" ? "danger" : "warning"} icon={KeyRound}>
                         {d.has_secret ? "Credential stored" : d.kind === "wordpress" ? "No credential" : "Unsigned"}
@@ -457,17 +475,29 @@ function DestinationsTab() {
                     ) : null}
                   </div>
                   <div className="flex-1 px-4 py-2 text-xs text-muted">
-                    {d.last_checked_at && d.last_check_status ? (
+                    {needsTeach ? (
+                      <p>
+                        {manage
+                          ? "Signed in. Click Teach and show NEWSWIRE the website's post form once; then it publishes by itself."
+                          : "An administrator has to show NEWSWIRE this website's post form once."}
+                      </p>
+                    ) : d.last_checked_at && d.last_check_status ? (
                       <p className={cn("line-clamp-2", checkOk ? "text-success" : "text-danger")} title={d.last_check_status ?? undefined}>
                         <span className="sr-only">Last connection test: </span>
                         {d.last_check_status} · <Time value={d.last_checked_at} />
                       </p>
                     ) : choosingPage ? (
-                      <p>Signed in to Facebook. Choose which Page NEWSWIRE posts to.</p>
+                      <p>Signed in to Facebook. Choose which {d.kind === "instagram" ? "Instagram account" : "Page"} NEWSWIRE posts to.</p>
                     ) : social && !conn?.connected ? (
                       <p>
                         {manage
-                          ? `Click Connect and sign in with the ${d.kind === "facebook" ? "Facebook account that manages the Page" : "Google account that owns the channel"}.`
+                          ? `Click Connect and sign in with the ${
+                              d.kind === "facebook"
+                                ? "Facebook account that manages the Page"
+                                : d.kind === "instagram"
+                                  ? "Facebook account that manages the Page your Instagram is linked to"
+                                  : "Google account that owns the channel"
+                            }.`
                           : "Not connected yet. An administrator has to connect it."}
                       </p>
                     ) : d.kind !== "builtin" ? (
@@ -487,6 +517,11 @@ function DestinationsTab() {
                           onClick={() => connect(d)}
                         >
                           <LogIn className="h-3.5 w-3.5" /> {conn?.connected || choosingPage ? "Reconnect" : "Connect"}
+                        </Button>
+                      ) : null}
+                      {site?.platform === "custom" ? (
+                        <Button size="sm" variant={needsTeach ? "primary" : "ghost"} onClick={() => setTeaching(d)}>
+                          <MousePointerClick className="h-3.5 w-3.5" /> {needsTeach ? "Teach" : "Teach again"}
                         </Button>
                       ) : null}
                       {d.kind !== "builtin" && (!social || conn?.connected) ? (
@@ -550,7 +585,15 @@ function DestinationsTab() {
         </ul>
       )}
       {!manage ? <p className="text-xs text-muted">Managing destinations requires the administrator role.</p> : null}
-      <DestinationDialog open={open} onOpenChange={setOpen} destination={editing} />
+      <DestinationDialog
+        open={open}
+        onOpenChange={setOpen}
+        destination={editing}
+        onSaved={(d) => {
+          if (d.kind === "website" && d.website?.platform === "custom" && !d.website.taught) setTeaching(d);
+        }}
+      />
+      <TeachDialog open={!!teaching} onOpenChange={(o) => !o && setTeaching(null)} destination={teaching} />
     </div>
   );
 }

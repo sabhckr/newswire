@@ -1,10 +1,21 @@
-import { Globe, Webhook } from "lucide-react";
+import { Globe, LogIn, Webhook } from "lucide-react";
 
 /** Facebook "f" mark (outline, to match the other line icons). */
 export function FacebookIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
       <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+    </svg>
+  );
+}
+
+/** Instagram camera mark (outline). */
+export function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <rect x="2" y="2" width="20" height="20" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M17.5 6.5h.01" />
     </svg>
   );
 }
@@ -23,7 +34,9 @@ export const KIND_LABEL: Record<string, string> = {
   builtin: "Built-in site",
   wordpress: "WordPress",
   webhook: "Website (webhook)",
+  website: "Website (admin login)",
   facebook: "Facebook Page",
+  instagram: "Instagram account",
   youtube: "YouTube channel",
 };
 
@@ -31,9 +44,13 @@ export const KIND_ICON: Record<string, React.ComponentType<{ className?: string 
   builtin: Globe,
   wordpress: Globe,
   webhook: Webhook,
+  website: LogIn,
   facebook: FacebookIcon,
+  instagram: InstagramIcon,
   youtube: YouTubeIcon,
 };
 
-export const SOCIAL_KINDS = new Set(["facebook", "youtube"]);
+export const SOCIAL_KINDS = new Set(["facebook", "instagram", "youtube"]);
+/** Facebook and Instagram: both sign in with the Meta app from Settings. */
+export const META_KINDS = new Set(["facebook", "instagram"]);
 export const isSocial = (kind: string | null | undefined) => SOCIAL_KINDS.has(kind ?? "");

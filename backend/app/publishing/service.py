@@ -28,8 +28,10 @@ log = logging.getLogger(__name__)
 
 ClientFactory = Callable[[], httpx.Client]
 PUBLISHABLE = {"approved", "scheduled", "published", "unpublished"}
-WEBSITE_KINDS = ("builtin", "wordpress", "webhook")
-SOCIAL_KINDS = ("facebook", "youtube")
+WEBSITE_KINDS = ("builtin", "wordpress", "webhook", "website")
+# Sites people read articles on (Facebook, Instagram and YouTube posts link to them).
+ARTICLE_SITE_KINDS = ("wordpress", "webhook", "website")
+SOCIAL_KINDS = ("facebook", "instagram", "youtube")
 # Remote states that can be taken down again.
 UNPUBLISHABLE_STATES = ("published", "draft", "private", "processing")
 # A social post waits this long for the website publication it links to.
@@ -178,12 +180,12 @@ def _claim(db: Session, job: PublishingJob) -> bool:
 
 
 def _website_link(db: Session, article: Article, prefer: set[uuid.UUID]) -> str | None:
-    """The article's address on the user's website, for Facebook and YouTube to link to."""
+    """The article's address on the user's website, for Facebook, Instagram and YouTube to link to."""
     rows = db.execute(
         select(ArticlePublication.destination_id, ArticlePublication.remote_url)
         .join(PublishingDestination, PublishingDestination.id == ArticlePublication.destination_id)
         .where(ArticlePublication.article_id == article.id, ArticlePublication.remote_status == "published",
-               ArticlePublication.remote_url.is_not(None), PublishingDestination.kind.in_(("wordpress", "webhook")))
+               ArticlePublication.remote_url.is_not(None), PublishingDestination.kind.in_(ARTICLE_SITE_KINDS))
         .order_by(ArticlePublication.last_synced_at.desc())
     ).all()
     for dest_id, url in rows:
@@ -478,7 +480,7 @@ def request_many(
             except AppError as exc:
                 raise AppError(exc.status, exc.code, f"{dest.name}: {exc.message}", exc.details) from exc
             out.append((dest, job, created))
-        websites = [str(j.id) for d, j, _ in out if d.kind in ("wordpress", "webhook") and j.status in ("pending", "running")]
+        websites = [str(j.id) for d, j, _ in out if d.kind in ARTICLE_SITE_KINDS and j.status in ("pending", "running")]
         for dest, job, created in out:
             if created and websites and dest.kind in SOCIAL_KINDS:
                 job.options = {**(job.options or {}), "after_jobs": websites}
