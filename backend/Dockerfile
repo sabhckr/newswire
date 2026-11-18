@@ -6,7 +6,8 @@ FROM python:3.13-slim-trixie
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    NEWSWIRE_STORAGE_DIR=/data
+    NEWSWIRE_STORAGE_DIR=/data \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client tini \
@@ -16,7 +17,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements.txt requirements.lock ./
-RUN pip install -r requirements.lock
+RUN pip install -r requirements.lock \
+    # Chromium for publishing to websites through their admin panel (app/publishing/website.py).
+    && python -m playwright install --with-deps chromium-headless-shell \
+    && rm -rf /var/lib/apt/lists/*
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app

@@ -1,9 +1,14 @@
-"""Facebook Page and YouTube channel publishing, and the OAuth connection for both.
+"""Facebook Page, Instagram account and YouTube channel publishing, and the OAuth connection.
 
 Credentials (app secret, Page token, YouTube refresh token) are kept as one Fernet-encrypted
 JSON object in `PublishingDestination.secret_encrypted`; non-secret details (App ID, Page and
 channel names) are in `config`. Nothing secret is ever returned by the API or put in a URL
 NEWSWIRE opens: Graph and YouTube calls send tokens in the Authorization header.
+
+Facebook and Instagram use one Meta app. An administrator enters it once (Settings →
+Integrations, stored in the `meta_app` system setting with the secret encrypted); after that a
+destination only needs Connect. A destination may still carry its own App ID and secret, which
+then take precedence (installations set up before the shared app existed keep working).
 """
 
 from __future__ import annotations
@@ -16,21 +21,26 @@ import secrets
 import time
 import uuid
 from typing import Any
-from urllib.parse import urlencode
+import ipaddress
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.db import utcnow
 from app.core.http import ResponseTooLarge, SafeResponse, safe_request
-from app.models import Article, ArticlePublication, PublishingDestination
+from app.models import Article, ArticlePublication, PublishingDestination, SystemSetting
 from app.publishing.connectors import PublishError, RemoteResult
 from app.videos.service import VideoError, file_chunks, file_range, is_short, reel_problems, require_file
 
-SOCIAL_KINDS = ("facebook", "youtube")
+SOCIAL_KINDS = ("facebook", "instagram", "youtube")
+META_KINDS = ("facebook", "instagram")
 OAUTH_STATE_TTL = 15 * 60
 CALLBACK_PATH = "/api/v1/publishing/oauth/callback"
+META_APP_KEY = "meta_app"
+INSTAGRAM_SCOPES = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,business_management"
 
 
 class RemoteGone(PublishError):
@@ -77,6 +87,8 @@ def is_connected(dest: PublishingDestination) -> bool:
     cfg, sec = dest.config or {}, load_secrets(dest)
     if dest.kind == "facebook":
         return bool(cfg.get("page_id") and sec.get("page_token"))
+    if dest.kind == "instagram":
+        return bool(cfg.get("ig_user_id") and sec.get("page_token"))
     if dest.kind == "youtube":
         return bool(sec.get("refresh_token"))
     return False
@@ -86,7 +98,56 @@ def clear_connection(dest: PublishingDestination) -> None:
     sec = load_secrets(dest)
     save_secrets(dest, {"client_secret": sec.get("client_secret")})
     set_config(dest, page_id=None, page_name=None, pages=None, channel_id=None, channel_title=None,
-               connected_at=None, oauth=None)
+               ig_user_id=None, ig_username=None, connected_at=None, oauth=None)
+
+
+# --- the shared Meta app (Facebook and Instagram) ---------------------------------------------------
+
+
+def meta_app(db: Session) -> dict:
+    """The Meta app entered once under Settings → Integrations. The secret is decrypted here only."""
+    row = db.get(SystemSetting, META_APP_KEY)
+    v = row.value if row is not None and isinstance(row.value, dict) else {}
+    return {
+        "client_id": v.get("app_id") or None,
+        "client_secret": decrypt_secret(v.get("secret_encrypted")) if v.get("secret_encrypted") else None,
+        "login_config_id": v.get("login_config_id") or None,
+        "instagram_login_config_id": v.get("instagram_login_config_id") or None,
+    }
+
+
+def save_meta_app(db: Session, *, app_id: str, secret: str | None, login_config_id: str | None,
+                  instagram_login_config_id: str | None, user_id=None) -> None:
+    row = db.get(SystemSetting, META_APP_KEY)
+    old = row.value if row is not None and isinstance(row.value, dict) else {}
+    value = {
+        "app_id": app_id,
+        "secret_encrypted": encrypt_secret(secret) if secret else old.get("secret_encrypted"),
+        "login_config_id": login_config_id or None,
+        "instagram_login_config_id": instagram_login_config_id or None,
+    }
+    if row is None:
+        db.add(SystemSetting(key=META_APP_KEY, value=value, updated_by_id=user_id))
+    else:
+        row.value = value
+        row.updated_by_id = user_id
+        row.updated_at = utcnow()
+
+
+def uses_shared_app(dest: PublishingDestination) -> bool:
+    return dest.kind in META_KINDS and not (dest.config or {}).get("client_id")
+
+
+def app_credentials(db: Session, dest: PublishingDestination) -> dict:
+    """The OAuth app a destination signs in with: its own, or the shared Meta app."""
+    if uses_shared_app(dest):
+        app = meta_app(db)
+        if dest.kind == "instagram":
+            app["login_config_id"] = app.get("instagram_login_config_id")
+        return app
+    cfg = dest.config or {}
+    return {"client_id": cfg.get("client_id"), "client_secret": load_secrets(dest).get("client_secret"),
+            "login_config_id": cfg.get("login_config_id")}
 
 
 def redirect_uri() -> str:
@@ -135,19 +196,20 @@ def read_state(db: Session, state: str | None) -> tuple[PublishingDestination, s
     return dest, pending.get("user_id")
 
 
-def authorize_url(dest: PublishingDestination, state: str) -> str:
+def authorize_url(dest: PublishingDestination, state: str, app: dict) -> str:
     s = get_settings()
-    cfg = dest.config or {}
-    client_id = cfg.get("client_id")
-    if not client_id or not load_secrets(dest).get("client_secret"):
-        what = "App ID and App secret" if dest.kind == "facebook" else "Client ID and Client secret"
+    client_id = app.get("client_id")
+    if not client_id or not app.get("client_secret"):
+        if uses_shared_app(dest):
+            raise OAuthError("Set up the Meta app first: Settings → Integrations (one time, for Facebook and Instagram).")
+        what = "App ID and App secret" if dest.kind in META_KINDS else "Client ID and Client secret"
         raise OAuthError(f"Enter the {what} first (edit the destination).")
-    if dest.kind == "facebook":
+    if dest.kind in META_KINDS:
         params = {"client_id": client_id, "redirect_uri": redirect_uri(), "state": state, "response_type": "code"}
-        if cfg.get("login_config_id"):
-            params["config_id"] = cfg["login_config_id"]  # Facebook Login for Business
+        if app.get("login_config_id"):
+            params["config_id"] = app["login_config_id"]  # Facebook Login for Business
         else:
-            params["scope"] = s.facebook_scopes
+            params["scope"] = INSTAGRAM_SCOPES if dest.kind == "instagram" else s.facebook_scopes
         return f"{s.facebook_dialog_url.rstrip('/')}/{s.facebook_graph_version}/dialog/oauth?{urlencode(params)}"
     params = {
         "client_id": client_id, "redirect_uri": redirect_uri(), "response_type": "code", "state": state,
@@ -166,10 +228,10 @@ def _json(resp: SafeResponse) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def complete_oauth(dest: PublishingDestination, code: str, client: httpx.Client) -> str:
+def complete_oauth(dest: PublishingDestination, code: str, client: httpx.Client, app: dict) -> str:
     """Exchange the code, store the connection, and return a sentence describing it."""
-    if dest.kind == "facebook":
-        return _facebook_complete(dest, code, client)
+    if dest.kind in META_KINDS:
+        return _facebook_complete(dest, code, client, app)
     return _youtube_complete(dest, code, client)
 
 
@@ -178,10 +240,10 @@ def _graph_base() -> str:
     return f"{s.facebook_graph_url.rstrip('/')}/{s.facebook_graph_version}"
 
 
-def _facebook_complete(dest: PublishingDestination, code: str, client: httpx.Client) -> str:
-    cfg, sec = dest.config or {}, load_secrets(dest)
+def _facebook_complete(dest: PublishingDestination, code: str, client: httpx.Client, app: dict) -> str:
+    sec = load_secrets(dest)
     base = _graph_base()
-    common = {"client_id": cfg.get("client_id"), "client_secret": sec.get("client_secret")}
+    common = {"client_id": app.get("client_id"), "client_secret": app.get("client_secret")}
     resp = safe_request(client, "POST", f"{base}/oauth/access_token",
                         data={**common, "redirect_uri": redirect_uri(), "code": code}, headers={"Accept": "application/json"})
     short = _json(resp).get("access_token")
@@ -193,7 +255,10 @@ def _facebook_complete(dest: PublishingDestination, code: str, client: httpx.Cli
                         headers={"Accept": "application/json"})
     # Page tokens from a long-lived user token do not expire; fall back to the short one if needed.
     user_token = _json(resp).get("access_token") or short
-    resp = safe_request(client, "GET", f"{base}/me/accounts?fields=id,name,access_token,tasks&limit=100",
+    fields = "id,name,access_token,tasks"
+    if dest.kind == "instagram":
+        fields += ",instagram_business_account{id,username}"
+    resp = safe_request(client, "GET", f"{base}/me/accounts?fields={fields}&limit=100",
                         headers={"Authorization": f"Bearer {user_token}", "Accept": "application/json"})
     if resp.status_code >= 400:
         raise OAuthError(f"Could not list your Facebook Pages: {_fb_message(resp)}")
@@ -205,29 +270,51 @@ def _facebook_complete(dest: PublishingDestination, code: str, client: httpx.Cli
                              "for full control or content access, then connect again.")
         raise OAuthError("Facebook did not give NEWSWIRE access to any Page. Connect again and, when Facebook "
                          "asks, select the Page and allow every permission.")
-    choices = [{"id": str(p["id"]), "name": str(p.get("name") or p["id"]), "token": p["access_token"]} for p in pages]
+    if dest.kind == "instagram":
+        choices = []
+        for p in pages:
+            ig = p.get("instagram_business_account")
+            if isinstance(ig, dict) and ig.get("id"):
+                handle = str(ig.get("username") or ig["id"])
+                choices.append({"id": str(ig["id"]), "name": f"@{handle}", "username": handle, "token": p["access_token"],
+                                "page_id": str(p["id"]), "page_name": str(p.get("name") or p["id"])})
+        if not choices:
+            raise OAuthError("None of your Facebook Pages has an Instagram account linked. In the Instagram app, switch "
+                             "the account to Professional (Business or Creator) and link it to your Facebook Page "
+                             "(Settings → Account center), then connect again.")
+        what, noun = "Instagram account", "accounts"
+    else:
+        choices = [{"id": str(p["id"]), "name": str(p.get("name") or p["id"]), "token": p["access_token"]} for p in pages]
+        what, noun = "Facebook Page", "Pages"
     if len(choices) == 1:
         _select_page(dest, choices[0])
-        return f"Connected to Facebook Page “{choices[0]['name']}”"
+        return f"Connected to {what} “{choices[0]['name']}”"
     save_secrets(dest, {"client_secret": sec.get("client_secret"), "pending_pages": choices})
-    set_config(dest, page_id=None, page_name=None, pages=[{"id": c["id"], "name": c["name"]} for c in choices])
-    return f"Signed in to Facebook; choose which of your {len(choices)} Pages to publish to"
+    set_config(dest, page_id=None, page_name=None, ig_user_id=None, ig_username=None,
+               pages=[{"id": c["id"], "name": c["name"] + (f" ({c['page_name']})" if c.get("page_name") else "")}
+                      for c in choices])
+    return f"Signed in to Facebook; choose which of your {len(choices)} {noun} to publish to"
 
 
 def _select_page(dest: PublishingDestination, page: dict) -> None:
     sec = load_secrets(dest)
     save_secrets(dest, {"client_secret": sec.get("client_secret"), "page_token": page["token"]})
-    set_config(dest, page_id=page["id"], page_name=page["name"], pages=None,
-               connected_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    if dest.kind == "instagram":
+        set_config(dest, ig_user_id=page["id"], ig_username=page.get("username"), page_id=page.get("page_id"),
+                   page_name=page.get("page_name"), pages=None, connected_at=now)
+    else:
+        set_config(dest, page_id=page["id"], page_name=page["name"], pages=None, connected_at=now)
 
 
 def choose_page(dest: PublishingDestination, page_id: str) -> str:
     pending = load_secrets(dest).get("pending_pages") or []
     page = next((p for p in pending if p.get("id") == page_id), None)
+    what = "Instagram account" if dest.kind == "instagram" else "Facebook Page"
     if page is None:
-        raise OAuthError("That Page is not in the list Facebook returned. Click Connect again.")
+        raise OAuthError(f"That {what} is not in the list Facebook returned. Click Connect again.")
     _select_page(dest, page)
-    return f"Connected to Facebook Page “{page['name']}”"
+    return f"Connected to {what} “{page['name']}”"
 
 
 def _youtube_complete(dest: PublishingDestination, code: str, client: httpx.Client) -> str:
@@ -483,6 +570,160 @@ class FacebookConnector:
     def check(self, client) -> str:
         page = self._call(client, "GET", f"/{self.page_id}?fields=id,name")
         return f"Connected to Facebook Page “{page.get('name') or self.page_id}”"
+
+
+# --- Instagram -----------------------------------------------------------------------------------------
+#
+# Instagram (Graph API for professional accounts linked to a Facebook Page) does not take file
+# uploads: it downloads the photo or video from a public address. A NEWSWIRE that is reachable
+# from the internet (NEWSWIRE_PUBLIC_BASE_URL on https) serves its own /media files; otherwise
+# the picture's original public address (Openverse, Wikimedia) is used when there is one.
+
+IG_PUBLIC_HINT = ("Instagram downloads the picture from the internet, and this NEWSWIRE is only reachable on this "
+                  "computer. Use an image from the Image Library (Openverse or Wikimedia), or run NEWSWIRE on a "
+                  "public https address (NEWSWIRE_PUBLIC_BASE_URL).")
+
+
+def public_base() -> str | None:
+    """NEWSWIRE's own address when the internet can reach it, else None."""
+    base = get_settings().public_base_url.rstrip("/")
+    parts = urlsplit(base)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not host or host == "localhost" or host.endswith((".localhost", ".local", ".test")):
+        return None
+    try:
+        if not ipaddress.ip_address(host).is_global:
+            return None
+    except ValueError:
+        pass  # a name, not an address
+    return base
+
+
+def public_image_url(article: Article) -> str | None:
+    img = article.featured_image
+    if img is None:
+        return None
+    base = public_base()
+    if base and img.local_path:
+        return f"{base}/media/{img.local_path}"
+    if img.original_url and img.original_url.startswith("https://") and img.provider != "upload":
+        return img.original_url
+    return None
+
+
+def public_video_url(article: Article) -> str | None:
+    base = public_base()
+    return f"{base}/media/{article.video.local_path}" if base and article.video is not None else None
+
+
+def _ig_error(resp: SafeResponse) -> PublishError:
+    """Facebook's error mapping (same Graph API), worded for Instagram."""
+    err = _fb_error(resp)
+    msg = str(err).replace("Facebook", "Instagram").replace("the Page", "the account")
+    return RemoteGone(msg) if isinstance(err, RemoteGone) else PublishError(msg, retryable=err.retryable)
+
+
+class InstagramConnector:
+    supports_draft = False
+
+    def __init__(self, dest: PublishingDestination):
+        cfg, sec = dest.config or {}, load_secrets(dest)
+        self.ig_id = cfg.get("ig_user_id")
+        self.token = sec.get("page_token")
+        if not self.ig_id or not self.token:
+            raise PublishError(f"{dest.name} is not connected to an Instagram account yet. Open Publishing → "
+                               "Destinations and click Connect.", retryable=False)
+        self.dest = dest
+        self.graph = _graph_base()
+
+    def _call(self, client, method: str, path: str, *, data=None) -> dict:
+        url = path if path.startswith("http") else self.graph + path
+        try:
+            resp = safe_request(client, method, url, data=data, max_bytes=2_000_000,
+                                headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"})
+        except ResponseTooLarge as exc:
+            raise PublishError("Instagram sent an unexpectedly large response") from exc
+        body = _json(resp)
+        if resp.status_code >= 400 or body.get("error"):
+            raise _ig_error(resp)
+        return body
+
+    def _publish_container(self, client, creation_id: str) -> tuple[str, str | None]:
+        res = self._call(client, "POST", f"/{self.ig_id}/media_publish", data={"creation_id": creation_id})
+        media_id = str(res.get("id") or "")
+        if not media_id:
+            raise PublishError("Instagram did not return the new post's id")
+        try:
+            link = self._call(client, "GET", f"/{media_id}?fields=permalink").get("permalink")
+        except PublishError:
+            link = None
+        return media_id, link
+
+    def publish(self, article, publication, mode, client, options=None) -> RemoteResult:
+        if mode == "draft":
+            raise PublishError("Instagram has no drafts. Publish now or schedule it.", retryable=False)
+        options = options or {}
+        fmt = options.get("format") or "post"
+        live = bool(publication and publication.remote_id and publication.remote_status in ("published", "processing"))
+        if live:
+            # Instagram cannot edit a post's photo or caption through the API.
+            details = dict(publication.details or {})
+            details["warning"] = "Instagram posts cannot be edited by apps; the original post stays as it was."
+            return RemoteResult(publication.remote_id, publication.remote_url, publication.remote_status, details)
+        caption = social_text(article, options, options.get("link"), with_link=True)[:2200]
+        if fmt == "reel":
+            problems = reel_problems(article.video)
+            if problems:
+                raise PublishError(" ".join(problems), retryable=False)
+            video_url = public_video_url(article)
+            if not video_url:
+                raise PublishError("Instagram downloads the video from the internet, and this NEWSWIRE is only "
+                                   "reachable on this computer. Run NEWSWIRE on a public https address "
+                                   "(NEWSWIRE_PUBLIC_BASE_URL) to post Reels.", retryable=False)
+            res = self._call(client, "POST", f"/{self.ig_id}/media",
+                             data={"media_type": "REELS", "video_url": video_url, "caption": caption})
+            container = str(res.get("id") or "")
+            if not container:
+                raise PublishError("Instagram did not accept the Reel")
+            # Instagram fetches and processes the video first; the publishing queue finishes the post.
+            return RemoteResult(container, None, "processing", {"format": "reel", "container_id": container})
+        image_url = public_image_url(article)
+        if not image_url:
+            raise PublishError(IG_PUBLIC_HINT if article.featured_image else
+                               "Instagram needs a picture. Add a featured image to the article.", retryable=False)
+        res = self._call(client, "POST", f"/{self.ig_id}/media", data={"image_url": image_url, "caption": caption})
+        container = str(res.get("id") or "")
+        if not container:
+            raise PublishError("Instagram did not accept the picture")
+        media_id, link = self._publish_container(client, container)
+        return RemoteResult(media_id, link, "published", {"format": "post"})
+
+    def unpublish(self, article, publication, client) -> RemoteResult:
+        raise PublishError("Instagram does not let apps delete posts. Delete it in the Instagram app "
+                           "(… on the post → Delete).", retryable=False)
+
+    def status(self, article, publication, client) -> RemoteResult:
+        details = dict(publication.details or {})
+        try:
+            container = details.get("container_id")
+            if publication.remote_status == "processing" and container:
+                st = self._call(client, "GET", f"/{container}?fields=status_code,status").get("status_code")
+                if st == "FINISHED":
+                    media_id, link = self._publish_container(client, container)
+                    details.pop("container_id", None)
+                    return RemoteResult(media_id, link, "published", details)
+                if st in ("ERROR", "EXPIRED"):
+                    details["error"] = "Instagram could not process the video (it must be MP4/H.264, 3–90 s, vertical)"
+                    return RemoteResult(publication.remote_id, None, "failed", details)
+                return RemoteResult(publication.remote_id, None, "processing", details)
+            data = self._call(client, "GET", f"/{publication.remote_id}?fields=id,permalink")
+            return RemoteResult(publication.remote_id, data.get("permalink") or publication.remote_url, "published", details)
+        except RemoteGone:
+            return RemoteResult(publication.remote_id, None, "deleted", details)
+
+    def check(self, client) -> str:
+        me = self._call(client, "GET", f"/{self.ig_id}?fields=id,username")
+        return f"Connected to Instagram account @{me.get('username') or self.ig_id}"
 
 
 # --- YouTube ------------------------------------------------------------------------------------------
@@ -789,6 +1030,34 @@ def validate_options(dest: PublishingDestination, article: Article, options: dic
                 raise ValueError(" ".join(problems))
             _check_file(article)
         return {k: v for k, v in {"format": fmt, "message": message}.items() if v is not None}
+    if dest.kind == "instagram":
+        if not is_connected(dest):
+            raise ValueError("Not connected yet. Open Publishing → Destinations and click Connect.")
+        if mode == "draft":
+            raise ValueError("Instagram has no drafts. Choose Publish now or Schedule.")
+        fmt = options.get("format") or "post"
+        if fmt not in ("post", "reel"):
+            raise ValueError("Choose Post or Reel")
+        if fmt == "reel":
+            problems = reel_problems(article.video)
+            if problems:
+                raise ValueError(" ".join(problems))
+            _check_file(article)
+            if not public_video_url(article):
+                raise ValueError("Instagram Reels need NEWSWIRE on a public https address, because Instagram "
+                                 "downloads the video from it.")
+        elif article.featured_image is None:
+            raise ValueError("Instagram needs a picture. Add a featured image to the article.")
+        elif not public_image_url(article):
+            raise ValueError(IG_PUBLIC_HINT)
+        return {k: v for k, v in {"format": fmt, "message": message}.items() if v is not None}
+    if dest.kind == "website":
+        from app.publishing.website import website_problem
+
+        problem = website_problem(dest, mode)
+        if problem:
+            raise ValueError(problem)
+        return {}
     if dest.kind == "youtube":
         if not is_connected(dest):
             raise ValueError("Not connected yet. Open Publishing → Destinations and click Connect.")
@@ -812,12 +1081,16 @@ def _check_file(article: Article) -> None:
 def is_slow(dest: PublishingDestination, options: dict | None, *, has_video: bool = False) -> bool:
     """Video uploads can take minutes; they run in the background instead of inside the request
     (a proxy would otherwise time out while the upload carries on)."""
-    return (dest.kind == "youtube" or (dest.kind == "facebook" and (options or {}).get("format") == "reel")
+    if dest.kind == "website":
+        # The robot browser takes a while; a WordPress site found behind the login is as fast as WordPress.
+        return (dest.config or {}).get("platform") != "wordpress" or has_video
+    return (dest.kind == "youtube" or (dest.kind in META_KINDS and (options or {}).get("format") == "reel")
             or (dest.kind == "wordpress" and has_video))
 
 
 __all__ = [
-    "FacebookConnector", "YouTubeConnector", "OAuthError", "RemoteGone", "SOCIAL_KINDS", "authorize_url",
-    "choose_page", "clear_connection", "complete_oauth", "is_connected", "is_slow", "load_secrets", "make_state",
-    "read_state", "redirect_uri", "save_secrets", "set_config", "validate_options",
+    "FacebookConnector", "InstagramConnector", "YouTubeConnector", "OAuthError", "RemoteGone", "SOCIAL_KINDS",
+    "META_KINDS", "app_credentials", "authorize_url", "choose_page", "clear_connection", "complete_oauth",
+    "is_connected", "is_slow", "load_secrets", "make_state", "meta_app", "read_state", "redirect_uri",
+    "save_meta_app", "save_secrets", "set_config", "uses_shared_app", "validate_options",
 ]

@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { MetaAppSettings } from "@/components/publishing/meta-app";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -625,6 +626,7 @@ export default function SettingsPage() {
     { id: "pipeline", label: "Dedup & clustering", show: true },
     { id: "collection", label: "Collection & backups", show: true },
     { id: "categories", label: "Categories", show: true },
+    { id: "integrations", label: "Facebook & Instagram", show: true },
     { id: "users", label: "Users & roles", show: can(PERMS.usersManage) },
   ].filter((t) => t.show);
   const tab = tabs.find((t) => t.id === params.get("tab"))?.id ?? "profile";
@@ -653,6 +655,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="categories">
           <CategoriesTab />
+        </TabsContent>
+        <TabsContent value="integrations">
+          <MetaAppSettings canManage={can(PERMS.publishingManage)} />
         </TabsContent>
         {can(PERMS.usersManage) ? (
           <TabsContent value="users">

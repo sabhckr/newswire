@@ -64,6 +64,8 @@ install_packages() {
   [ -x "$ROOT/backend/.venv/bin/python" ] || "$(python_bin)" -m venv "$ROOT/backend/.venv"
   "$ROOT/backend/.venv/bin/pip" install -q --upgrade pip
   "$ROOT/backend/.venv/bin/pip" install -q -r "$ROOT/backend/requirements.lock"
+  say "Installing the robot browser (publishing to websites through their admin panel)"
+  "$ROOT/backend/.venv/bin/python" -m playwright install chromium >/dev/null
   say "Installing Node packages"
   (cd "$ROOT/frontend" && npm ci --no-audit --no-fund --loglevel=error)
 }

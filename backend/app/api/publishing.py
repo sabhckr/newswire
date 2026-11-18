@@ -17,7 +17,7 @@ from app.core.http import UnsafeURLError, make_client, validate_url
 from app.core.pagination import PageParams
 from app.models import Article, ArticlePublication, PublishingDestination, PublishingJob, User
 from app.publishing.connectors import PublishError, connector_for
-from app.publishing import social
+from app.publishing import social, website
 from app.publishing.service import cancel_job, retry_job, run_publishing_cycle, sync_publication
 from app.schemas.domain import (
     ConnectionOut,
@@ -26,8 +26,12 @@ from app.schemas.domain import (
     DestinationUpdateIn,
     FacebookPageIn,
     JobOut,
+    MetaAppIn,
+    MetaAppOut,
     PublicationOut,
     SocialPageOut,
+    TeachStatusOut,
+    WebsiteOut,
 )
 from app.security import permissions as P
 from app.security.deps import CurrentUser, require
@@ -39,6 +43,9 @@ router = APIRouter(prefix="/publishing", tags=["publishing"])
 def dest_out(d: PublishingDestination) -> DestinationOut:
     o = DestinationOut.model_validate(d)
     o.has_secret = bool(d.secret_encrypted)
+    if d.kind == "website":
+        o.has_secret = bool(social.load_secrets(d).get("password"))
+        o.website = WebsiteOut(**website.website_summary(d))
     if d.kind in social.SOCIAL_KINDS:
         cfg = d.config or {}
         o.has_secret = bool(social.load_secrets(d).get("client_secret"))
@@ -46,6 +53,9 @@ def dest_out(d: PublishingDestination) -> DestinationOut:
         if d.kind == "facebook":
             name = cfg.get("page_name") if connected else None
             url = f"https://www.facebook.com/{cfg['page_id']}" if connected and cfg.get("page_id") else None
+        elif d.kind == "instagram":
+            name = f"@{cfg['ig_username']}" if connected and cfg.get("ig_username") else None
+            url = f"https://www.instagram.com/{cfg['ig_username']}/" if connected and cfg.get("ig_username") else None
         else:
             name = cfg.get("channel_title") if connected else None
             url = f"https://www.youtube.com/channel/{cfg['channel_id']}" if connected and cfg.get("channel_id") else None
@@ -54,6 +64,7 @@ def dest_out(d: PublishingDestination) -> DestinationOut:
             login_config_id=cfg.get("login_config_id"), redirect_uri=social.redirect_uri(),
             connected_at=cfg.get("connected_at") if connected else None,
             pages=[SocialPageOut(id=str(pg["id"]), name=str(pg["name"])) for pg in cfg.get("pages") or []],
+            shared_app=social.uses_shared_app(d),
         )
     return o
 
@@ -77,18 +88,52 @@ def destinations(db: Session = Depends(get_db), _: CurrentUser = Depends(require
     return [dest_out(d) for d in db.scalars(select(PublishingDestination).order_by(PublishingDestination.created_at))]
 
 
+def _setup_website(d: PublishingDestination, password: str) -> str:
+    """Sign in to the website once to find out what it is (WordPress or a custom admin panel)."""
+    try:
+        with make_client(timeout=30) as client:
+            return website.setup_website(d, password, client)
+    except website.SetupError as exc:
+        raise AppError(422, "website_login", str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        from app.core.http import describe_error
+
+        raise AppError(422, "website_unreachable", f"Could not reach the website: {describe_error(exc)}") from exc
+
+
 @router.post("/destinations", response_model=DestinationOut, status_code=201)
 def create_destination(body: DestinationIn, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
-    if body.kind in social.SOCIAL_KINDS:
+    message = None
+    if body.kind == "website":
+        login_url = (body.base_url or "").strip()
+        if len(login_url) < 8:
+            raise AppError(422, "validation_error", "Enter the website's admin login address (https://…)")
+        _check(login_url)
+        if not (body.username or "").strip() or not body.secret:
+            raise AppError(422, "validation_error", "Enter the admin email (or username) and password")
+        d = PublishingDestination(name=body.name, kind="website", base_url=login_url, username=body.username.strip(),
+                                  is_active=body.is_active, is_commercial=body.is_commercial, auto_publish=body.auto_publish)
+        social.set_config(d, body_format=body.body_format or "auto")
+        message = _setup_website(d, body.secret)
+        d.last_checked_at = utcnow()
+        d.last_check_status = ("OK: " + message)[:300]
+    elif body.kind in social.SOCIAL_KINDS:
         client_id = (body.client_id or "").strip()
         secret = (body.secret or "").strip()
-        if not client_id or not secret:
-            what = "an App ID and an App secret" if body.kind == "facebook" else "a Client ID and a Client secret"
-            raise AppError(422, "validation_error", f"{body.kind.title() if body.kind == 'facebook' else 'YouTube'} needs {what}")
+        own_app = bool(client_id or secret)
+        if body.kind in social.META_KINDS and not own_app:
+            app = social.meta_app(db)
+            if not app.get("client_id") or not app.get("client_secret"):
+                raise AppError(422, "meta_app_missing", "Set up the Meta app first: Settings → Integrations (one time, "
+                                                        "for Facebook and Instagram).")
+        elif not client_id or not secret:
+            what = "an App ID and an App secret" if body.kind in social.META_KINDS else "a Client ID and a Client secret"
+            raise AppError(422, "validation_error", f"{'YouTube' if body.kind == 'youtube' else body.kind.title()} needs {what}")
         d = PublishingDestination(name=body.name, kind=body.kind, is_active=body.is_active,
                                   is_commercial=body.is_commercial, auto_publish=body.auto_publish)
-        social.set_config(d, client_id=client_id, login_config_id=(body.login_config_id or "").strip() or None)
-        social.save_secrets(d, {"client_secret": secret})
+        if own_app:
+            social.set_config(d, client_id=client_id, login_config_id=(body.login_config_id or "").strip() or None)
+            social.save_secrets(d, {"client_secret": secret})
     else:
         if not body.base_url or len(body.base_url) < 8:
             raise AppError(422, "validation_error", "Enter the website address (https://…)")
@@ -100,8 +145,8 @@ def create_destination(body: DestinationIn, db: Session = Depends(get_db), curre
                                   is_active=body.is_active, is_commercial=body.is_commercial, auto_publish=body.auto_publish)
     db.add(d)
     db.flush()
-    record(db, "destination.created", f"Publishing destination {d.name} ({d.kind}) added", actor=current,
-           entity_type="destination", entity_id=d.id)
+    record(db, "destination.created", f"Publishing destination {d.name} ({d.kind}) added"
+           + (f": {message}" if message else ""), actor=current, entity_type="destination", entity_id=d.id)
     db.commit()
     return dest_out(d)
 
@@ -113,6 +158,9 @@ def update_destination(dest_id: uuid.UUID, body: DestinationUpdateIn, db: Sessio
     data = body.model_dump(exclude_unset=True)
     if d.kind == "builtin":
         data = {k: v for k, v in data.items() if k in ("name", "is_active", "is_commercial", "auto_publish")}
+    if d.kind == "website":
+        return _update_website(db, d, data, current)
+    data.pop("body_format", None)
     if d.kind in social.SOCIAL_KINDS:
         secret = (data.pop("secret", None) or "").strip()
         cfg = d.config or {}
@@ -151,6 +199,100 @@ def update_destination(dest_id: uuid.UUID, body: DestinationUpdateIn, db: Sessio
            actor=current, entity_type="destination", entity_id=d.id, details={"fields": sorted(data)})
     db.commit()
     return dest_out(d)
+
+
+def _update_website(db: Session, d: PublishingDestination, data: dict, current: CurrentUser) -> DestinationOut:
+    password = data.pop("secret", None)
+    body_format = data.pop("body_format", None)
+    new_url = (data.pop("base_url", None) or "").strip()
+    new_user = (data.pop("username", None) or "").strip()
+    for k in ("name", "is_active", "is_commercial", "auto_publish"):
+        if k in data:
+            setattr(d, k, data[k])
+    login_changed = False
+    if new_url and new_url != d.base_url:
+        _check(new_url)
+        d.base_url = new_url
+        login_changed = True
+    if new_user and new_user != d.username:
+        d.username = new_user
+        login_changed = True
+    if body_format:
+        social.set_config(d, body_format=body_format)
+    message = None
+    if password or login_changed:
+        pw = password or social.load_secrets(d).get("password")
+        if not pw:
+            raise AppError(422, "validation_error", "Enter the admin password")
+        message = _setup_website(d, pw)
+        d.last_checked_at = utcnow()
+        d.last_check_status = ("OK: " + message)[:300]
+    record(db, "destination.updated", f"Publishing destination {d.name} updated"
+           + (" (login changed)" if password or login_changed else "") + (f": {message}" if message else ""),
+           actor=current, entity_type="destination", entity_id=d.id)
+    db.commit()
+    return dest_out(d)
+
+
+@router.post("/destinations/{dest_id}/teach", response_model=TeachStatusOut)
+def start_teach(dest_id: uuid.UUID, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
+    """Open a browser window on the computer running NEWSWIRE so an administrator can show it the
+    website's post form once. Poll GET …/teach for progress."""
+    d = get_or_404(db, PublishingDestination, dest_id, "Destination")
+    if d.kind != "website":
+        raise AppError(400, "bad_request", "Only website destinations are taught")
+    if (d.config or {}).get("platform") != "custom":
+        raise AppError(409, "conflict", "This website is WordPress; NEWSWIRE already knows how to publish there")
+    session = website.start_teaching(d)
+    record(db, "destination.teach_started", f"Teaching started for {d.name}", actor=current,
+           entity_type="destination", entity_id=d.id)
+    db.commit()
+    return TeachStatusOut(**session.status())
+
+
+@router.get("/destinations/{dest_id}/teach", response_model=TeachStatusOut)
+def teach_status(dest_id: uuid.UUID, _: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
+    return TeachStatusOut(**(website.teaching_status(dest_id) or {"state": "idle"}))
+
+
+@router.delete("/destinations/{dest_id}/teach", response_model=TeachStatusOut)
+def cancel_teach(dest_id: uuid.UUID, _: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
+    website.cancel_teaching(dest_id)
+    return TeachStatusOut(**(website.teaching_status(dest_id) or {"state": "idle"}))
+
+
+def _meta_app_out(db: Session) -> MetaAppOut:
+    app = social.meta_app(db)
+    return MetaAppOut(configured=bool(app["client_id"] and app["client_secret"]), app_id=app["client_id"],
+                      has_secret=bool(app["client_secret"]), login_config_id=app["login_config_id"],
+                      instagram_login_config_id=app["instagram_login_config_id"], redirect_uri=social.redirect_uri())
+
+
+@router.get("/meta-app", response_model=MetaAppOut)
+def get_meta_app(db: Session = Depends(get_db), _: CurrentUser = Depends(require(P.READ))):
+    """The shared Meta app for Facebook and Instagram. The secret is never returned."""
+    return _meta_app_out(db)
+
+
+@router.put("/meta-app", response_model=MetaAppOut)
+def put_meta_app(body: MetaAppIn, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
+    old = social.meta_app(db)
+    secret = (body.secret or "").strip() or None
+    if not secret and not old.get("client_secret"):
+        raise AppError(422, "validation_error", "Paste the App secret")
+    if old.get("client_id") and old["client_id"] != body.app_id and not secret:
+        raise AppError(422, "validation_error", "A different app needs its own App secret")
+    social.save_meta_app(db, app_id=body.app_id, secret=secret, login_config_id=(body.login_config_id or "").strip(),
+                         instagram_login_config_id=(body.instagram_login_config_id or "").strip(), user_id=current.id)
+    if old.get("client_id") and old["client_id"] != body.app_id:
+        # Tokens belong to the old app: Facebook and Instagram destinations using it connect again.
+        for d in db.scalars(select(PublishingDestination).where(PublishingDestination.kind.in_(social.META_KINDS))):
+            if social.uses_shared_app(d):
+                social.clear_connection(d)
+    record(db, "settings.meta_app", "Meta app for Facebook and Instagram saved" + (" (secret replaced)" if secret else ""),
+           actor=current)
+    db.commit()
+    return _meta_app_out(db)
 
 
 @router.delete("/destinations/{dest_id}")
@@ -204,9 +346,9 @@ def connect(dest_id: uuid.UUID, db: Session = Depends(get_db), current: CurrentU
     """Start signing in to Facebook or Google. The browser goes to the returned address."""
     d = get_or_404(db, PublishingDestination, dest_id, "Destination")
     if d.kind not in social.SOCIAL_KINDS:
-        raise AppError(400, "bad_request", "Only Facebook and YouTube destinations are connected this way")
+        raise AppError(400, "bad_request", "Only Facebook, Instagram and YouTube destinations are connected this way")
     try:
-        url = social.authorize_url(d, social.make_state(d, current.id))
+        url = social.authorize_url(d, social.make_state(d, current.id), social.app_credentials(db, d))
     except social.OAuthError as exc:
         raise AppError(422, "not_configured", str(exc)) from exc
     db.commit()
@@ -233,7 +375,7 @@ def oauth_callback(
     actor = db.get(User, uuid.UUID(user_id)) if user_id else None
     try:
         with make_client(timeout=30) as client:
-            message = social.complete_oauth(d, code, client)
+            message = social.complete_oauth(d, code, client, social.app_credentials(db, d))
     except social.OAuthError as exc:
         db.rollback()
         return _settings_redirect(connect_error=str(exc)[:300], destination=str(d.id))
@@ -241,7 +383,8 @@ def oauth_callback(
         from app.core.http import describe_error
 
         db.rollback()
-        return _settings_redirect(connect_error=f"Could not reach {d.kind.title()}: {describe_error(exc)}"[:300],
+        platform = {"youtube": "Google", "instagram": "Facebook"}.get(d.kind, d.kind.title())
+        return _settings_redirect(connect_error=f"Could not reach {platform}: {describe_error(exc)}"[:300],
                                   destination=str(d.id))
     d.last_checked_at = utcnow()
     d.last_check_status = ("OK: " + message)[:300]
@@ -254,8 +397,8 @@ def oauth_callback(
 def choose_facebook_page(dest_id: uuid.UUID, body: FacebookPageIn, db: Session = Depends(get_db),
                          current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
     d = get_or_404(db, PublishingDestination, dest_id, "Destination")
-    if d.kind != "facebook":
-        raise AppError(400, "bad_request", "Only Facebook destinations have Pages")
+    if d.kind not in social.META_KINDS:
+        raise AppError(400, "bad_request", "Only Facebook and Instagram destinations have Pages or accounts to choose")
     try:
         message = social.choose_page(d, body.page_id)
     except social.OAuthError as exc:
@@ -271,7 +414,7 @@ def choose_facebook_page(dest_id: uuid.UUID, body: FacebookPageIn, db: Session =
 def disconnect(dest_id: uuid.UUID, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
     d = get_or_404(db, PublishingDestination, dest_id, "Destination")
     if d.kind not in social.SOCIAL_KINDS:
-        raise AppError(400, "bad_request", "Only Facebook and YouTube destinations can be disconnected")
+        raise AppError(400, "bad_request", "Only Facebook, Instagram and YouTube destinations can be disconnected")
     social.clear_connection(d)
     d.last_check_status = None
     d.last_checked_at = None
