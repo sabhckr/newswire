@@ -10,7 +10,7 @@ import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
@@ -307,9 +307,20 @@ def _schedule_next(source: Source, outcome: FetchOutcome, interval: int) -> None
     source.next_fetch_at = now + timedelta(seconds=max(delay, settings.min_poll_interval_seconds))
 
 
-def _sort_time(published: datetime | None, retrieved: datetime) -> datetime:
+def _day_end(day: date | None, country_code: str | None) -> datetime | None:
+    """The end of a publication day in the source country's time zone (UTC when unknown)."""
+    if day is None:
+        return None
+    zone = ZoneInfo(LOCAL_TIME_ZONES.get((country_code or "").upper(), "UTC"))
+    return datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=zone).astimezone(timezone.utc)
+
+
+def _sort_time(published: datetime | None, retrieved: datetime, not_after: datetime | None = None) -> datetime:
+    """When the story sorts in feeds. Without a usable publication time it is the retrieval time,
+    capped by `not_after` (the end of a known publication day) so that a backlog of older,
+    undated stories collected at once does not crowd today's news off the top of Live News."""
     if published is None or published > retrieved + timedelta(minutes=10):
-        return retrieved
+        return min(retrieved, not_after) if not_after is not None else retrieved
     return published
 
 
@@ -349,12 +360,14 @@ def ingest_entries(
 
         title = entry.title
         published = entry.published_at
+        day_end = _day_end(entry.published_day, source.country_code)
         summary = entry.summary
         image_urls = list(entry.image_urls)
         language = entry.language or source.language
         untitled = not title
+        known_age = published or day_end
         if untitled and (
-            (published is not None and published < now - PAGE_LOOKUP_MAX_AGE) or _recent_miss(normalized)
+            (known_age is not None and known_age < now - PAGE_LOOKUP_MAX_AGE) or _recent_miss(normalized)
         ):
             skipped += 1
             continue
@@ -402,6 +415,8 @@ def ingest_entries(
         # country's local time labelled as UTC it is corrected; otherwise it is kept for reference
         # but not used. Either way the time as given stays in `extra`.
         extra_dates = {}
+        if entry.published_day is not None and published is None:
+            extra_dates["published_day"] = entry.published_day.isoformat()
         if published is not None and published > now + timedelta(minutes=10):
             fixed = correct_local_time_as_utc(published, now, source.country_code)
             if fixed is not None:
@@ -429,7 +444,7 @@ def ingest_entries(
             image_urls=image_urls or None,
             published_at=published,
             retrieved_at=now,
-            sort_at=_sort_time(published, now),
+            sort_at=_sort_time(published, now, day_end),
             extra={
                 **extra_dates,
                 "categories": entry.categories,

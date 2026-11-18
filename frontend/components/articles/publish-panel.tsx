@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { ChecksList, asChecks } from "@/components/articles/checks-list";
 import { ACTION_LABEL, JobActions, JobStatus, useInvalidatePublishing } from "@/components/publishing/jobs";
-import { KIND_ICON, KIND_LABEL, isSocial } from "@/components/publishing/kinds";
+import { KIND_ICON, KIND_LABEL, META_KINDS, isSocial } from "@/components/publishing/kinds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -31,7 +31,9 @@ type UnpublishResponse = { job: JobOut; duplicate_request: boolean; article: Art
 
 const PUBLISHABLE = new Set(["approved", "scheduled", "published", "unpublished"]);
 const REMOVABLE = new Set(["published", "draft", "private", "processing"]);
-const WEBSITE_KINDS = new Set(["builtin", "wordpress", "webhook"]);
+const WEBSITE_KINDS = new Set(["builtin", "wordpress", "webhook", "website"]);
+/** A website NEWSWIRE fills in through its admin panel (not WordPress): no drafts, no unpublish. */
+const isRobotSite = (d: DestinationOut | undefined) => d?.kind === "website" && d.website?.platform !== "wordpress";
 
 function defaultScheduleValue(): string {
   const d = new Date(Date.now() + 60 * 60 * 1000);
@@ -49,6 +51,8 @@ function defaultCaption(a: ArticleOut): string {
 function unavailable(d: DestinationOut, article: ArticleOut): string | null {
   if (isSocial(d.kind) && !d.connection?.connected) return "Not connected yet";
   if (d.kind === "youtube" && !article.video_id) return "Add a video to the article first";
+  if (d.kind === "instagram" && !article.featured_image && !article.video_id) return "Instagram needs a photo: add a featured image first";
+  if (d.kind === "website" && d.website?.platform === "custom" && !d.website.taught) return "Show NEWSWIRE this website's post form first (Teach)";
   return null;
 }
 
@@ -112,7 +116,7 @@ export function PublishPanel({
   useEffect(() => {
     if (initialised.current || !active.length) return;
     initialised.current = true;
-    const site = active.find((d) => d.kind === "wordpress" || d.kind === "webhook") ?? active.find((d) => d.kind === "builtin");
+    const site = active.find((d) => d.kind === "website" || d.kind === "wordpress" || d.kind === "webhook") ?? active.find((d) => d.kind === "builtin");
     if (site) setChoices({ [site.id]: { on: true, format: "post", privacy: "public" } });
   }, [active]);
 
@@ -122,9 +126,10 @@ export function PublishPanel({
   const video = article.video ?? null;
   const reelProblems: string[] = video ? (video.reel_problems ?? []) : ["Add a vertical video (3–90 seconds) to post a Reel."];
   const selected = active.filter((d) => choice(d.id).on && !unavailable(d, article));
-  const hasFacebook = selected.some((d) => d.kind === "facebook");
+  // Facebook, Instagram and admin-panel websites have no "draft" NEWSWIRE can save to.
+  const hasFacebook = selected.some((d) => META_KINDS.has(d.kind) || isRobotSite(d));
   const hasSocial = selected.some((d) => isSocial(d.kind));
-  const badReel = selected.some((d) => d.kind === "facebook" && choice(d.id).format === "reel" && reelProblems.length > 0);
+  const badReel = selected.some((d) => META_KINDS.has(d.kind) && choice(d.id).format === "reel" && reelProblems.length > 0);
   const strictest = selected.find((d) => d.is_commercial) ?? selected[0] ?? null;
 
   useEffect(() => {
@@ -216,6 +221,7 @@ export function PublishPanel({
   const describe = (d: DestinationOut) => {
     const c = choice(d.id);
     if (d.kind === "facebook") return `${d.name} (Facebook ${c.format === "reel" ? "Reel" : "post"})`;
+    if (d.kind === "instagram") return `${d.name} (Instagram ${c.format === "reel" ? "Reel" : "photo post"})`;
     if (d.kind === "youtube") return `${d.name} (YouTube, ${mode === "draft" ? "private draft" : c.privacy})`;
     return d.kind !== "builtin" && d.base_url ? `${d.name} (${hostOf(d.base_url)})` : d.name;
   };
@@ -239,7 +245,7 @@ export function PublishPanel({
               <li key={d.id}>{describe(d)}</li>
             ))}
           </ul>
-          {hasSocial && selected.some((d) => d.kind === "wordpress" || d.kind === "webhook") ? (
+          {hasSocial && selected.some((d) => d.kind === "website" || d.kind === "wordpress" || d.kind === "webhook") ? (
             <p className="text-xs text-muted">Your website goes first; Facebook and YouTube then link to the article there.</p>
           ) : null}
         </div>
@@ -254,7 +260,7 @@ export function PublishPanel({
       targets: selected.map((d) => ({
         destination_id: d.id,
         options:
-          d.kind === "facebook"
+          META_KINDS.has(d.kind)
             ? { format: choice(d.id).format, message }
             : d.kind === "youtube"
               ? { privacy: choice(d.id).privacy, message }
@@ -265,7 +271,7 @@ export function PublishPanel({
 
   const pubs = article.publications ?? [];
   const removeText = (p: PublicationOut) =>
-    p.destination_kind === "wordpress"
+    p.destination_kind === "wordpress" || p.destination_kind === "website"
       ? "The WordPress post is switched back to draft. It is not deleted."
       : p.destination_kind === "webhook"
         ? "An article.unpublished event is sent to your website."
@@ -310,7 +316,7 @@ export function PublishPanel({
                       ) : null}
                     </div>
                     {p.remote_status === "processing" ? (
-                      <p className="text-xs text-muted">{p.destination_kind === "youtube" ? "YouTube" : "Facebook"} is processing the video; this updates by itself.</p>
+                      <p className="text-xs text-muted">{p.destination_kind === "youtube" ? "YouTube" : p.destination_kind === "instagram" ? "Instagram" : "Facebook"} is processing the video; this updates by itself.</p>
                     ) : null}
                     {p.warning ? (
                       <p className="flex items-start gap-1 text-xs text-warning">
@@ -325,7 +331,9 @@ export function PublishPanel({
                             <RefreshCw className="h-3.5 w-3.5" /> Check status
                           </Button>
                         ) : null}
-                        {REMOVABLE.has(p.remote_status) ? (
+                        {REMOVABLE.has(p.remote_status) &&
+                        p.destination_kind !== "instagram" &&
+                        !isRobotSite(active.find((d) => d.id === p.destination_id)) ? (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -407,7 +415,7 @@ export function PublishPanel({
                             ) : null}
                           </p>
                         ) : null}
-                        {on && d.kind === "facebook" ? (
+                        {on && META_KINDS.has(d.kind) ? (
                           <div className="ml-6 mt-2 flex flex-col gap-1">
                             <div role="radiogroup" aria-label={`${d.name} format`} className="inline-flex w-fit rounded-md border border-border p-0.5">
                               {(["post", "reel"] as FbFormat[]).map((f) => (
@@ -428,7 +436,9 @@ export function PublishPanel({
                             </div>
                             <p className={cn("text-xs", c.format === "reel" && reelProblems.length ? "text-danger" : "text-muted")}>
                               {c.format === "post"
-                                ? "A post with the link to your article (or the featured image when there is no website link)."
+                                ? d.kind === "instagram"
+                                  ? "The featured image with the caption below. Instagram does not show links in posts."
+                                  : "A post with the link to your article (or the featured image when there is no website link)."
                                 : reelProblems.length
                                   ? reelProblems.join(" ")
                                   : "The article's video as a Reel, with the caption below."}
@@ -498,7 +508,7 @@ export function PublishPanel({
                           className="accent-[rgb(var(--accent))]"
                         />
                         {label}
-                        {off ? <span className="text-xs">(Facebook has no drafts)</span> : null}
+                        {off ? <span className="text-xs">(not possible on Facebook, Instagram or an admin-panel website)</span> : null}
                       </label>
                     );
                   })}

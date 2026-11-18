@@ -1,6 +1,7 @@
 """Publishing connectors: built-in public API, WordPress REST API, signed webhook.
 
-Facebook Pages and YouTube are in app/publishing/social.py. Every connector has
+Facebook Pages, Instagram and YouTube are in app/publishing/social.py; any website reached
+through its own admin login is in app/publishing/website.py. Every connector has
 publish(article, publication, mode, client, options=None), unpublish, status and check.
 """
 
@@ -110,15 +111,23 @@ class BuiltinConnector:
 class WordPressConnector:
     supports_draft = True
 
-    def __init__(self, dest: PublishingDestination):
-        if not dest.base_url or not dest.username:
+    def __init__(self, dest: PublishingDestination, *, base_url: str | None = None, username: str | None = None,
+                 password: str | None = None):
+        """Credentials come from the destination, or are passed in (a WordPress site found behind an
+        admin login: app/publishing/website.py)."""
+        base_url = base_url or dest.base_url
+        username = username or dest.username
+        if not base_url or not username:
             raise PublishError("WordPress destination needs a site URL and a username", retryable=False)
-        password = decrypt_secret(dest.secret_encrypted)
+        password = password or decrypt_secret(dest.secret_encrypted)
         if not password:
             raise PublishError("WordPress application password is missing", retryable=False)
         self.dest = dest
-        self.api = dest.base_url.rstrip("/") + "/wp-json/wp/v2"
-        token = base64.b64encode(f"{dest.username}:{password}".encode()).decode()
+        self.api = base_url.rstrip("/") + "/wp-json/wp/v2"
+        self._authorize(username, password)
+
+    def _authorize(self, username: str, password: str) -> None:
+        token = base64.b64encode(f"{username}:{password}".encode()).decode()
         self.headers = {"Authorization": f"Basic {token}", "Accept": "application/json"}
 
     def _call(self, client, method, path, *, json_body=None, content=None, extra_headers=None, max_bytes=5_000_000):
@@ -302,10 +311,14 @@ def connector_for(dest: PublishingDestination):
         return WordPressConnector(dest)
     if dest.kind == "webhook":
         return WebhookConnector(dest)
-    if dest.kind in ("facebook", "youtube"):
-        from app.publishing.social import FacebookConnector, YouTubeConnector
+    if dest.kind == "website":
+        from app.publishing.website import website_connector
 
-        return FacebookConnector(dest) if dest.kind == "facebook" else YouTubeConnector(dest)
+        return website_connector(dest)
+    if dest.kind in ("facebook", "instagram", "youtube"):
+        from app.publishing.social import FacebookConnector, InstagramConnector, YouTubeConnector
+
+        return {"facebook": FacebookConnector, "instagram": InstagramConnector, "youtube": YouTubeConnector}[dest.kind](dest)
     raise PublishError(f"Unknown destination kind {dest.kind}", retryable=False)
 
 
