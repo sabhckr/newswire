@@ -350,3 +350,32 @@ def test_english_text_declared_as_bangla_uses_the_source_language(db, feeds):
     source = make_source(db, f"{SITE}/en-feed", source_type="rss", language="en")
     collect_source(db, source, client_factory=feeds.factory())
     assert db.scalar(select(NewsItem.language).where(NewsItem.source_id == source.id)) == "en"
+
+
+def test_bare_sitemap_date_is_kept_as_a_day_not_a_time():
+    parsed = parse_sitemap(news_sitemap([(f"{SITE}/national/b1", "পুরোনো খবর", "2026-11-16")]).encode())
+    e = parsed.entries[0]
+    assert e.published_at is None
+    assert e.published_day is not None and e.published_day.isoformat() == "2026-11-16"
+    # A full timestamp wins; no day is recorded alongside it.
+    assert parse_sitemap(news_sitemap(ITEMS).encode()).entries[0].published_day is None
+
+
+def test_undated_backlog_does_not_sort_above_todays_news(db, feeds):
+    """Sitemaps with bare dates (Dainik Bangla, New Age) used to sort a backlog of older stories as
+    "just retrieved", pushing every other paper off the top of Live News."""
+    from datetime import timedelta
+
+    from app.core.db import utcnow
+
+    old_day = (utcnow() - timedelta(days=3)).date().isoformat()
+    feeds.add(f"{SITE}/news-sitemap.xml",
+              news_sitemap([(f"{SITE}/national/old", "তিন দিন আগের খবর", old_day)]), headers=XML)
+    source = make_source(db, f"{SITE}/news-sitemap.xml")
+    collect_source(db, source, client_factory=feeds.factory())
+    item = db.scalar(select(NewsItem).where(NewsItem.url == f"{SITE}/national/old"))
+    assert item.published_at is None
+    assert item.extra["published_day"] == old_day
+    sort_at = item.sort_at if item.sort_at.tzinfo else item.sort_at.replace(tzinfo=utcnow().tzinfo)
+    # Sorted at the end of that day in Dhaka, not at the moment it was collected.
+    assert sort_at <= utcnow() - timedelta(days=1)
