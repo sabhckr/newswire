@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -264,12 +265,18 @@ ERROR_TEXT = ("[role=alert]:visible, .alert-danger:visible, .alert-error:visible
               ".field-error:visible, .is-invalid:visible")
 
 
+def _python() -> str:
+    """This NEWSWIRE's own Python, quoted, so the install hint works as typed on macOS, Linux and Windows."""
+    return f'"{sys.executable}"' if " " in sys.executable else sys.executable
+
+
 def _sync_playwright():
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover - installed with the backend requirements
-        raise PublishError("The robot browser is not installed. Run: python -m playwright install chromium",
-                           retryable=False) from exc
+        raise PublishError("The robot browser is not installed on this computer. In a terminal on this computer, run: "
+                           f"{_python()} -m pip install playwright  and then  {_python()} -m playwright install chromium"
+                           "  — then try again.", retryable=False) from exc
     return sync_playwright
 
 
@@ -279,8 +286,9 @@ def _launch(p, *, headless: bool):
     except Exception as exc:  # noqa: BLE001
         msg = str(exc)
         if "Executable doesn't exist" in msg or "playwright install" in msg:
-            raise PublishError("The robot browser is not installed on this computer. Run: "
-                               "backend/.venv/bin/python -m playwright install chromium", retryable=False) from exc
+            raise PublishError("The robot browser is not installed on this computer. In a terminal on this computer, "
+                               f"run: {_python()} -m playwright install chromium  — then try again.",
+                               retryable=False) from exc
         if not headless and ("display" in msg.lower() or "headed" in msg.lower()):
             raise PublishError("Teaching needs NEWSWIRE running on a computer with a screen (it opens a browser "
                                "window). Run it on your Mac or PC for this one-time step.", retryable=False) from exc
