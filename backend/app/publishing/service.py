@@ -28,6 +28,8 @@ log = logging.getLogger(__name__)
 
 ClientFactory = Callable[[], httpx.Client]
 PUBLISHABLE = {"approved", "scheduled", "published", "unpublished"}
+# Still being written. Publishing from here needs the right to approve (one-step publishing).
+WRITING = {"draft", "in_review"}
 WEBSITE_KINDS = ("builtin", "wordpress", "webhook", "website")
 # Sites people read articles on (Facebook, Instagram and YouTube posts link to them).
 ARTICLE_SITE_KINDS = ("wordpress", "webhook", "website")
@@ -43,7 +45,7 @@ STALE_RUNNING = timedelta(hours=3)
 def ensure_builtin_destination(db: Session) -> PublishingDestination:
     dest = db.scalar(select(PublishingDestination).where(PublishingDestination.kind == "builtin"))
     if dest is None:
-        dest = PublishingDestination(name="NEWSWIRE public API", kind="builtin", is_active=True, is_commercial=True)
+        dest = PublishingDestination(name="Samyabadi public API", kind="builtin", is_active=True, is_commercial=True)
         db.add(dest)
         db.flush()
     return dest
@@ -71,6 +73,10 @@ def check_publication(
     if action == "publish":
         policy = get_setting(db, "publishing")
         allowed = PUBLISHABLE | ({"in_review"} if mode == "draft" else set())
+        if not system and actor.can(P.ARTICLES_APPROVE):
+            # Someone who may approve does not have to press Approve first: publishing approves
+            # (see _approve_by_publishing). Every check below still has to pass.
+            allowed |= WRITING
         if article.status not in allowed:
             raise AppError(409, "not_approved",
                            f"Only approved articles can be published (current status: {article.status})")
@@ -100,6 +106,22 @@ def check_publication(
     return options
 
 
+def _approve_by_publishing(db: Session, article: Article, actor) -> None:
+    """One-step publishing: a draft that passed `check_publication` for someone who may approve
+    becomes approved as part of the same request. Nothing is committed here, so if the request
+    fails afterwards the article is still the draft it was."""
+    if article.status not in WRITING or not actor.can(P.ARTICLES_APPROVE):
+        return
+    previous = article.status
+    article.status = "approved"
+    article.approved_at = utcnow()
+    article.approved_by_id = actor.id
+    record(db, "article.approved", f"\u201c{article.headline[:100]}\u201d approved by publishing it", actor=actor,
+           entity_type="article", entity_id=article.id,
+           details={"from": previous, "to": "approved", "version": article.version, "by_publishing": True})
+    db.flush()
+
+
 def request_publication(
     db: Session,
     article: Article,
@@ -115,6 +137,8 @@ def request_publication(
     """Queue a publishing action. Returns (job, created). Duplicate requests return the existing job."""
     options = check_publication(db, article, dest, action, actor=actor, mode=mode, scheduled_for=scheduled_for,
                                 system=system, options=options)
+    if action == "publish" and not system:
+        _approve_by_publishing(db, article, actor)
     key = _key(article.id, dest.id, action, mode, article.version, scheduled_for.isoformat() if scheduled_for else "",
                json.dumps(options, sort_keys=True), article.video_id or "")
     existing = db.scalar(select(PublishingJob).where(PublishingJob.idempotency_key == key))
@@ -333,7 +357,7 @@ def recover_interrupted(db: Session) -> int:
             PublishingJob.status == "running", PublishingJob.updated_at < now - STALE_RUNNING)):
         job.status = "failed"
         job.completed_at = now
-        job.last_error = ("Interrupted: NEWSWIRE stopped while this was being published. Check the destination; "
+        job.last_error = ("Interrupted: Samyabadi stopped while this was being published. Check the destination; "
                           "retry if it did not arrive.")
         article = db.get(Article, job.article_id)
         if article is not None:

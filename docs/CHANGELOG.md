@@ -5,6 +5,54 @@ Releases with a migration that drops or rewrites data are marked **⚠ data migr
 
 ## Unreleased
 
+### Reliability
+- **One-step publishing is atomic.** The server approves and publishes a draft in the same
+  request (for someone who may approve), or does neither: a draft that fails a check, or a
+  request with one destination that cannot take it, is still a draft afterwards.
+- **Sitemaps with a bare "&" are read.** One unescaped ampersand in a headline (seen on a live
+  news sitemap) used to make the whole file unreadable and the source "failing"; such slips and
+  stray control characters are now mended before parsing. Files that are really broken are still
+  reported.
+- **Dialogs no longer jump while opening.** The opening animation replaced the transform that
+  centres a dialog, so it appeared half its width to the right for a moment.
+- **Robot browser:** it waits for a button to stop moving (a dialog still sliding in) before
+  clicking, and looks an element up again when the website redrew it between finding and using it.
+- **Teach:** the instruction bar can be moved to the bottom edge (*Move bar down*) so it cannot
+  hide a website's own top menu, and it no longer redraws itself every 0.6 s (a redraw at the
+  wrong moment could swallow a click on *Cancel* or *This is the page*).
+- A notification that points at a page the app no longer has just marks itself read.
+- The browser test suite can run in the Google Chrome already installed
+  (`E2E_BROWSER_CHANNEL=chrome npm run test:e2e`), without downloading a browser.
+
+### A simpler app
+- The menu has seven entries instead of twelve, in the order the work happens: **Overview, Live
+  News, Articles, Image Library, Publishing, Sources, Settings**.
+- **Removed from the screens:** My Headlines, Research Workspace, Story Clusters, Analytics and
+  Activity Logs, with their keyboard shortcuts, search results and settings tabs (*Matching &
+  scoring*, *Dedup & clustering*; the duplicate settings moved to *Collection & backups*). The
+  server still has them and no data was deleted, so they can be brought back.
+- **Publishing is one step.** Someone who may approve articles (an administrator or editor)
+  writes, saves and presses **Publish**: the review and approval steps happen by themselves, and
+  the checks on text, images and licences still have to pass. Writers without that right still
+  submit for review.
+- **Overview** shows today's four numbers, anything that needs attention and the latest news,
+  with a *New article* button.
+- **Live News:** a story's panel leads with *Start article from this*; the review buttons, the
+  matched-headlines list, the cluster link and the manual location form are gone.
+- The article editor's side panel starts with **Publish**; the *Linked headlines* card is gone.
+- The unused charting library (`recharts`) was removed from the web app.
+
+### Samyabadi name and logo
+- The app is now shown as **Samyabadi News Automation Tool**, with the Samyabadi logo in the
+  sidebar, on the sign-in and first-run screens and as the browser-tab and home-screen icon.
+  Messages in the app, the Teach window's instruction bar, the API reference title and the
+  public RSS feed title say *Samyabadi*.
+- Unchanged, so existing installs keep working: the `newswire` command, every `NEWSWIRE_*`
+  setting, the database, the `X-Newswire-Signature` webhook header, the `NEWSWIRE/…` User-Agent
+  that publishers' robots.txt rules match. A new install names its built-in destination
+  *Samyabadi public API*; an install that already has *NEWSWIRE public API* keeps that name
+  until it is renamed under Publishing → Destinations.
+
 ### The robot browser is now NEWSWIRE's own pure-Python engine
 - Publishing through a website's own admin panel no longer uses Playwright. The new engine in
   `backend/app/robot` is written in Python with the standard library only and speaks the Chrome

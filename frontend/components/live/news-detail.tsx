@@ -2,23 +2,19 @@
 
 import * as D from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, CheckCircle2, CircleDot, Copy, ExternalLink, FilePlus2, FileText, Layers, MapPin, RefreshCw, Rss, Target, X } from "lucide-react";
+import { Copy, ExternalLink, FilePlus2, FileText, MapPin, RefreshCw, Rss, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { toast } from "sonner";
 
-import { PlacePicker } from "@/components/assignments/place-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field, Select } from "@/components/ui/input";
 import { ErrorState, SkeletonRows } from "@/components/ui/states";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { Time } from "@/components/ui/time";
 import { Tip } from "@/components/ui/tooltip";
 import { api, errorMessage } from "@/lib/api";
 import { PERMS, useSession } from "@/lib/session";
-import type { GeoEntityOut, NewsGeoOut, NewsItemOut } from "@/lib/types";
+import type { NewsGeoOut, NewsItemOut } from "@/lib/types";
 import { cn, flag, formatDateTime, hostOf } from "@/lib/utils";
 
 export interface NewsDetail extends NewsItemOut {
@@ -89,70 +85,6 @@ function Confidence({ value }: { value: number }) {
   );
 }
 
-function LocationCorrection({ item }: { item: NewsDetail }) {
-  const qc = useQueryClient();
-  const [role, setRole] = useState<"event" | "article">("event");
-  const set = useMutation({
-    mutationFn: (place: GeoEntityOut) => api(`/news/${item.id}/geographies`, { body: { entity_id: place.id, role } }),
-    onSuccess: (_d, place) => {
-      toast.success(`${role === "event" ? "Event" : "Article"} location set to ${place.name}`);
-      qc.invalidateQueries({ queryKey: ["news-item", item.id] });
-      qc.invalidateQueries({ queryKey: ["news"] });
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  return (
-    <div className="mt-3 rounded border border-dashed border-border p-2.5">
-      <p className="mb-2 text-xs text-muted">Correct the location: an editor’s choice is stored with full confidence and replaces any earlier editor choice for that role.</p>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Field label="Role" htmlFor="geo-role" className="sm:w-36">
-          <Select id="geo-role" value={role} onChange={(e) => setRole(e.target.value as "event" | "article")}>
-            <option value="event">Event location</option>
-            <option value="article">Article location</option>
-          </Select>
-        </Field>
-        <Field label="Place" htmlFor="geo-place" className="flex-1">
-          <PlacePicker id="geo-place" onSelect={(p) => set.mutate(p)} disabled={set.isPending} placeholder="Search a city, region or country…" />
-        </Field>
-      </div>
-    </div>
-  );
-}
-
-function ReviewButtons({ item }: { item: NewsDetail }) {
-  const qc = useQueryClient();
-  const review = useMutation({
-    mutationFn: (status: "unreviewed" | "verified" | "archived") => api(`/news/${item.id}`, { method: "PATCH", body: { review_status: status } }),
-    onSuccess: (_d, status) => {
-      toast.success(`Marked ${status}`);
-      qc.invalidateQueries({ queryKey: ["news-item", item.id] });
-      qc.invalidateQueries({ queryKey: ["news"] });
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  const options = [
-    { v: "unreviewed" as const, label: "Unreviewed", icon: CircleDot },
-    { v: "verified" as const, label: "Verified", icon: CheckCircle2 },
-    { v: "archived" as const, label: "Archived", icon: Archive },
-  ];
-  return (
-    <div className="flex flex-wrap gap-1.5" role="group" aria-label="Review status">
-      {options.map((o) => (
-        <Button
-          key={o.v}
-          size="sm"
-          variant={item.review_status === o.v ? "primary" : "outline"}
-          aria-pressed={item.review_status === o.v}
-          disabled={review.isPending}
-          onClick={() => review.mutate(o.v)}
-        >
-          <o.icon className="h-3.5 w-3.5" /> {o.label}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
 function FullArticle({ item }: { item: NewsDetail }) {
   const qc = useQueryClient();
   const router = useRouter();
@@ -188,7 +120,7 @@ function FullArticle({ item }: { item: NewsDetail }) {
     <Section title="Full article" icon={FileText}>
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         {!full ? (
-          <Button size="sm" variant="primary" loading={load.isPending} onClick={() => load.mutate(false)}>
+          <Button size="sm" variant="outline" loading={load.isPending} onClick={() => load.mutate(false)}>
             <FileText className="h-3.5 w-3.5" /> Load full article
           </Button>
         ) : (
@@ -204,7 +136,7 @@ function FullArticle({ item }: { item: NewsDetail }) {
           </>
         )}
         {can(PERMS.articlesWrite) ? (
-          <Button size="sm" variant={full ? "primary" : "outline"} loading={draft.isPending} onClick={() => draft.mutate()}>
+          <Button size="sm" variant="primary" loading={draft.isPending} onClick={() => draft.mutate()}>
             <FilePlus2 className="h-3.5 w-3.5" /> Start article from this
           </Button>
         ) : null}
@@ -246,7 +178,6 @@ function FullArticle({ item }: { item: NewsDetail }) {
 }
 
 export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (id: string) => void }) {
-  const { can } = useSession();
   const q = useQuery({ queryKey: ["news-item", id], queryFn: () => api<NewsDetail>(`/news/${id}`) });
   if (q.isLoading) return <SkeletonRows rows={8} />;
   if (q.isError || !q.data) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -276,7 +207,6 @@ export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (i
           ) : null}
         </dl>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <StatusBadge status={item.review_status} />
           {item.is_duplicate ? (
             <Badge tone="warning" icon={Copy} title={item.duplicate_reason ?? undefined}>
               Duplicate{item.duplicate_reason ? ` (${item.duplicate_reason.replace(/_/g, " ")})` : ""}
@@ -299,11 +229,6 @@ export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (i
             {categories.slice(0, 12).map((c) => (
               <Badge key={c}>{c}</Badge>
             ))}
-          </div>
-        ) : null}
-        {can(PERMS.researchWrite) ? (
-          <div className="mt-3">
-            <ReviewButtons item={item} />
           </div>
         ) : null}
       </div>
@@ -331,41 +256,7 @@ export function NewsDetailBody({ id, onOpenItem }: { id: string; onOpenItem?: (i
         ) : (
           <p className="text-sm text-muted">No places were detected in this report.</p>
         )}
-        <p className="mt-2 text-2xs text-muted">Publisher location comes from the source settings and is not used for matching unless enabled in Settings.</p>
-        {can(PERMS.researchWrite) ? <LocationCorrection item={item} /> : null}
       </Section>
-
-      <Section title="Matched headlines" icon={Target} count={item.matches.length}>
-        {item.matches.length ? (
-          <ul className="space-y-2">
-            {item.matches.map((m) => (
-              <li key={m.id} className="rounded border border-border p-2">
-                <div className="flex items-center gap-2">
-                  <Link href={`/research/${m.assignment_id}`} className="min-w-0 flex-1 truncate text-sm font-medium hover:text-accent">
-                    {m.headline}
-                  </Link>
-                  <span className="tabular rounded bg-accent/10 px-1.5 text-xs font-semibold text-accent" title="Match score">
-                    {Math.round(m.score)}
-                  </span>
-                  <StatusBadge status={m.review_status} />
-                </div>
-                <p className="mt-1 text-xs text-muted">{m.explanation}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">Not matched by any headline.</p>
-        )}
-      </Section>
-
-      {item.cluster ? (
-        <Section title="Story cluster" icon={Layers}>
-          <Link href={`/clusters?id=${item.cluster.id}`} className="text-sm hover:text-accent">
-            {item.cluster.title}
-          </Link>
-          <span className="ml-2 text-xs text-muted">{item.cluster.item_count} reports</span>
-        </Section>
-      ) : null}
 
       <Section title="Seen in sources" icon={Rss} count={item.seen_in.length}>
         <ul className="space-y-1 text-sm">

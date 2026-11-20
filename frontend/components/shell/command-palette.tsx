@@ -3,7 +3,7 @@
 import * as D from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Clock, FileText, Layers, Loader2, Newspaper, Rss, Search, Target } from "lucide-react";
+import { Clock, FileText, Loader2, Newspaper, Rss, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -13,10 +13,9 @@ import { relativeTime } from "@/lib/utils";
 
 import { NAV } from "./nav";
 
-const ICONS: Record<SearchGroup["type"], React.ComponentType<{ className?: string }>> = {
+// The kinds of result this app has a page for (the server also knows headlines and clusters).
+const ICONS: Partial<Record<SearchGroup["type"], React.ComponentType<{ className?: string }>>> = {
   news: Newspaper,
-  assignments: Target,
-  clusters: Layers,
   articles: FileText,
   sources: Rss,
 };
@@ -54,7 +53,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     onOpenChange(false);
     router.push(href);
   };
-  const groups = results.data?.groups.filter((g) => g.items.length) ?? [];
+  const groups = results.data?.groups.filter((g) => g.items.length && ICONS[g.type]) ?? [];
   const navMatches = NAV.filter((n) => !q || n.label.toLowerCase().includes(q.toLowerCase()));
 
   return (
@@ -62,15 +61,15 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-50 bg-black/50 animate-fade-in" />
         <D.Content className="fixed left-1/2 top-[10vh] z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-lg border border-border bg-surface shadow-pop animate-slide-in">
-          <D.Title className="sr-only">Search NEWSWIRE</D.Title>
-          <D.Description className="sr-only">Search news, headlines, clusters, articles and sources</D.Description>
+          <D.Title className="sr-only">Search Samyabadi</D.Title>
+          <D.Description className="sr-only">Search news, articles and sources</D.Description>
           <Command shouldFilter={false} label="Global search">
             <div className="flex items-center gap-2 border-b border-border px-3">
               <Search className="h-4 w-4 text-muted" aria-hidden />
               <Command.Input
                 value={q}
                 onValueChange={setQ}
-                placeholder="Search news, headlines, clusters, articles, sources…"
+                placeholder="Search news, articles, sources…"
                 className="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
               />
               {results.isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : null}
@@ -80,7 +79,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Command.Empty className="px-3 py-6 text-center text-sm text-muted">No results for “{term}”.</Command.Empty>
               ) : null}
               {groups.map((g) => {
-                const Icon = ICONS[g.type];
+                const Icon = ICONS[g.type] ?? FileText;
                 return (
                   <Command.Group key={g.type} heading={g.label} className="px-1 pb-1 text-2xs font-semibold uppercase tracking-wide text-muted [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
                     {g.items.map((it) => (

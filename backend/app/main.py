@@ -78,13 +78,13 @@ def create_app(*, run_startup: bool = True) -> FastAPI:
                 scheduler = build_scheduler(blocking=False)
                 scheduler.start()
                 log.info("Embedded scheduler started (single-process mode)")
-        log.info("NEWSWIRE API %s started (%s)", VERSION, settings.env)
+        log.info("Samyabadi API %s started (%s)", VERSION, settings.env)
         yield
         if scheduler is not None:
             scheduler.shutdown(wait=False)
 
     app = FastAPI(
-        title="NEWSWIRE API",
+        title="Samyabadi News Automation Tool API",
         version=VERSION,
         description="Self-hosted news intelligence, research, editorial and publishing platform. "
         "All endpoints except /health, /auth/setup-status, /auth/setup, /auth/login and /public/* need a session cookie; "

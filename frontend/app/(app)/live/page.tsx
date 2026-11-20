@@ -5,7 +5,7 @@ import { ArrowUp, Filter, Newspaper, RefreshCw, Rss, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { PlacePicker } from "@/components/assignments/place-picker";
+import { PlacePicker } from "@/components/live/place-picker";
 import { NewsDetailDrawer } from "@/components/live/news-detail";
 import { NewsRow } from "@/components/news-row";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ import { flag, formatNumber } from "@/lib/utils";
 type NewsPage = Page<NewsItemOut> & { latest_retrieved_at: string | null; server_time: string };
 
 const PAGE_SIZE = 50;
-const FILTER_KEYS = ["q", "publisher", "country", "language", "duplicates", "matched", "from", "to", "sort"] as const;
+const FILTER_KEYS = ["q", "publisher", "country", "language", "duplicates", "from", "to", "sort"] as const;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -218,13 +218,6 @@ export default function LivePage() {
                 <option value="include">Show duplicates</option>
                 <option value="exclude">Hide duplicates</option>
                 <option value="only">Only duplicates</option>
-              </Select>
-            </Field>
-            <Field label="Headline matches" htmlFor="f-matched">
-              <Select id="f-matched" value={get("matched")} onChange={(e) => update({ matched: e.target.value || null })}>
-                <option value="">All reports</option>
-                <option value="yes">Matched by a headline</option>
-                <option value="no">Not matched</option>
               </Select>
             </Field>
             <Field label="From" htmlFor="f-from">

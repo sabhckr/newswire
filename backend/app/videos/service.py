@@ -57,7 +57,7 @@ def video_url(video: VideoAsset) -> str:
 def require_file(video: VideoAsset) -> Path:
     path = video_path(video)
     if not path.is_file():
-        raise VideoError("The video file is missing on the NEWSWIRE server (it may not have been restored from a "
+        raise VideoError("The video file is missing on the Samyabadi server (it may not have been restored from a "
                          "backup). Upload the video again.", 409)
     return path
 
@@ -162,7 +162,7 @@ def start_upload(*, filename: str | None, title: str | None, size: int, user_id)
         raise VideoError(_too_large(limit), 413)
     free = shutil.disk_usage(uploads_dir()).free
     if free < size + 200_000_000:  # the file plus headroom; the final move is a rename on the same disk
-        raise VideoError("The NEWSWIRE server is low on disk space, so the video cannot be stored. "
+        raise VideoError("The Samyabadi server is low on disk space, so the video cannot be stored. "
                          "Ask the administrator to free space.", 507)
     upload_id = uuid.uuid4().hex
     d = uploads_dir()

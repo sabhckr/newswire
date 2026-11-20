@@ -193,7 +193,7 @@ def check(client: httpx.Client, url: str) -> Verdict:
             return Verdict(
                 False,
                 f"Could not read {parts.netloc}/robots.txt ({entry.error}). Fetching from this site is "
-                f"paused until it can be read; this is a connection problem, not the publisher blocking NEWSWIRE.",
+                f"paused until it can be read; this is a connection problem, not the publisher blocking Samyabadi.",
                 "unreachable",
             )
     if allow_all or rules is None:

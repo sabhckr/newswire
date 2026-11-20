@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/react";
 import {
   ArrowLeft,
@@ -14,7 +14,6 @@ import {
   Search as SearchIcon,
   ShieldAlert,
   Tags,
-  Target,
   Trash2,
   X,
 } from "lucide-react";
@@ -45,7 +44,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Time } from "@/components/ui/time";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { PERMS, useSession } from "@/lib/session";
-import type { ArticleIn, ArticleOut, AssignmentOut, AuditOut, CategoryOut, ImageOut, TagOut, VideoOut } from "@/lib/types";
+import type { ArticleIn, ArticleOut, AuditOut, CategoryOut, ImageOut, TagOut, VideoOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function Counter({ value, max }: { value: string; max: number }) {
@@ -232,14 +231,6 @@ export default function ArticleEditorPage() {
       router.push("/articles");
     },
     onError: (e) => toast.error(errorMessage(e)),
-  });
-
-  const assignments = useQueries({
-    queries: (article.data?.assignment_ids ?? []).map((aid) => ({
-      queryKey: ["assignment", aid],
-      queryFn: () => api<AssignmentOut>(`/assignments/${aid}`),
-      staleTime: 60_000,
-    })),
   });
 
   const featured = useMemo(() => {
@@ -545,36 +536,6 @@ export default function ArticleEditorPage() {
             </CardBody>
           </Card>
 
-          <Card>
-            <CardHeader title="Linked headlines" icon={Target} description="Research assignments this article was written from." />
-            <CardBody>
-              {(a.assignment_ids ?? []).length ? (
-                <ul className="flex flex-col divide-y divide-border/70">
-                  {assignments.map((q, i) => {
-                    const aid = (a.assignment_ids ?? [])[i];
-                    return (
-                      <li key={aid} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-                        {q.isLoading ? (
-                          <Skeleton className="h-5 w-2/3" />
-                        ) : q.data ? (
-                          <>
-                            <Link href={`/research/${aid}`} className="min-w-0 flex-1 truncate text-sm font-medium hover:text-accent">
-                              {q.data.headline}
-                            </Link>
-                            <StatusBadge status={q.data.research_status} />
-                          </>
-                        ) : (
-                          <span className="text-sm text-muted">Headline no longer available</span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted">Not linked to a headline. Articles started from the Research Workspace are linked automatically.</p>
-              )}
-            </CardBody>
-          </Card>
         </div>
 
         {/* Side panel */}
@@ -582,25 +543,25 @@ export default function ArticleEditorPage() {
           <Tabs defaultValue="publish">
             <TabsList className="w-full">
               <TabsTrigger value="publish" className="flex-1">
-                Workflow
+                Publish
               </TabsTrigger>
               <TabsTrigger value="history" className="flex-1">
                 History
               </TabsTrigger>
             </TabsList>
             <TabsContent value="publish" className="mt-3 flex flex-col gap-4">
-              <WorkflowPanel article={a} dirty={dirty} canApprove={canApprove} onArticle={onArticle} />
+              <PublishPanel article={a} dirty={dirty} onArticle={onArticle} />
               <Card>
                 <CardHeader
-                  title="Pre-publication checks"
+                  title="Checks before publishing"
                   icon={ShieldAlert}
-                  description={dirty ? "Based on the last saved version. Save to re-check." : "For a commercial publication. Destination-specific checks run when you publish."}
+                  description={dirty ? "Based on the last saved version. Save to re-check." : "What has to be fixed, and what is worth a second look."}
                 />
                 <CardBody>
                   <ChecksList checks={checks} />
                 </CardBody>
               </Card>
-              <PublishPanel article={a} dirty={dirty} onArticle={onArticle} />
+              <WorkflowPanel article={a} dirty={dirty} canApprove={canApprove} onArticle={onArticle} />
             </TabsContent>
             <TabsContent value="history" className="mt-3">
               <HistoryPanel id={id} version={a.version} updatedAt={a.updated_at} />

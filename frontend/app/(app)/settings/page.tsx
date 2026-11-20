@@ -31,43 +31,6 @@ type FieldSpec = { label: string; hint?: string; min?: number; max?: number; ste
 
 const GROUPS: { key: string; title: string; description: string; fields: Record<string, FieldSpec> }[] = [
   {
-    key: "matching.weights",
-    title: "Match scoring weights",
-    description: "Points added per matched element. A story must reach a headline’s minimum score to be listed.",
-    fields: {
-      required_phrase: { label: "Required phrase", step: 1 },
-      primary: { label: "Primary keyword", step: 1 },
-      synonym: { label: "Synonym", step: 1 },
-      secondary: { label: "Secondary keyword", step: 1 },
-      geography: { label: "Geography match", step: 1 },
-      category: { label: "Category match", step: 1 },
-      selected_publisher: { label: "Selected publisher", step: 1 },
-      recency_max: { label: "Recency bonus (max)", hint: "Decays linearly over the recency window", step: 1 },
-      language: { label: "Language match", step: 1 },
-      excluded_penalty: { label: "Excluded phrase penalty", hint: "Used only when excluded mode is “penalty”", step: 1 },
-    },
-  },
-  {
-    key: "matching.options",
-    title: "Matching behaviour",
-    description: "How terms are compared. Fuzzy matching catches spelling variants of words five letters or longer.",
-    fields: {
-      excluded_mode: { label: "Excluded phrases", options: ["reject", "penalty"] },
-      fuzzy_enabled: { label: "Fuzzy matching" },
-      fuzzy_threshold: { label: "Fuzzy similarity threshold", min: 60, max: 100, step: 1 },
-      fuzzy_min_length: { label: "Fuzzy minimum word length", min: 3, max: 20, step: 1 },
-      fuzzy_factor: { label: "Fuzzy weight factor", min: 0, max: 1, step: 0.05 },
-      inflection_factor: { label: "Inflection weight factor", min: 0, max: 1, step: 0.05 },
-      token_factor: { label: "Scattered-word factor", hint: "All words present but not as a phrase", min: 0, max: 1, step: 0.05 },
-      body_factor: { label: "Summary-only factor", hint: "Match found in the summary but not the headline", min: 0, max: 1, step: 0.05 },
-      recency_window_hours: { label: "Recency window (hours)", min: 1, max: 720, step: 1 },
-      geo_min_confidence: { label: "Minimum location confidence", min: 0, max: 1, step: 0.05 },
-      geo_include_publisher: { label: "Count publisher location as story location" },
-      backfill_days: { label: "Backfill on create (days)", min: 0, max: 90, step: 1 },
-      backfill_limit: { label: "Backfill item limit", min: 0, max: 50000, step: 100 },
-    },
-  },
-  {
     key: "dedup",
     title: "Duplicate detection",
     description: "Exact URL and canonical duplicates are always merged; these thresholds govern near-duplicate flagging.",
@@ -76,20 +39,6 @@ const GROUPS: { key: string; title: string; description: string; fields: Record<
       headline_window_hours: { label: "Headline comparison window (hours)", min: 1, max: 720, step: 1 },
       min_headline_tokens: { label: "Minimum headline words", min: 1, max: 20, step: 1 },
       content_hash_window_days: { label: "Content hash window (days)", min: 1, max: 365, step: 1 },
-    },
-  },
-  {
-    key: "clustering",
-    title: "Story clustering",
-    description: "Groups reports of the same event across publishers. Editor merges, splits and locks always win.",
-    fields: {
-      enabled: { label: "Clustering enabled" },
-      window_hours: { label: "Clustering window (hours)", min: 1, max: 720, step: 1 },
-      headline_threshold: { label: "Headline similarity threshold", min: 50, max: 100, step: 1 },
-      min_shared_title_tokens: { label: "Minimum shared headline words", min: 1, max: 10, step: 1 },
-      keyword_jaccard: { label: "Keyword overlap (Jaccard)", min: 0.05, max: 1, step: 0.01 },
-      min_shared_tokens: { label: "Minimum shared keywords", min: 1, max: 20, step: 1 },
-      related_headline_floor: { label: "Headline floor for keyword clustering", min: 0, max: 100, step: 1 },
     },
   },
   {
@@ -569,7 +518,7 @@ function CategoriesTab() {
   const canWrite = can(PERMS.sourcesWrite);
   return (
     <Card>
-      <CardHeader title="Categories" description="Used to label sources and headlines and to group analytics." icon={Tag} />
+      <CardHeader title="Categories" description="Used to label sources and articles." icon={Tag} />
       {canWrite ? (
         <form
           className="flex gap-2 border-b border-border p-3"
@@ -622,8 +571,6 @@ export default function SettingsPage() {
   const router = useRouter();
   const tabs = [
     { id: "profile", label: "Profile & theme", show: true },
-    { id: "scoring", label: "Matching & scoring", show: true },
-    { id: "pipeline", label: "Dedup & clustering", show: true },
     { id: "collection", label: "Collection & backups", show: true },
     { id: "categories", label: "Categories", show: true },
     { id: "integrations", label: "Facebook & Instagram", show: true },
@@ -632,7 +579,7 @@ export default function SettingsPage() {
   const tab = tabs.find((t) => t.id === params.get("tab"))?.id ?? "profile";
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="Settings" description="Your profile, the newsroom’s matching rules, collection and backups, and who has access." />
+      <PageHeader title="Settings" description="Your profile, news collection and backups, and who has access." />
       <Tabs value={tab} onValueChange={(v) => router.replace(`/settings?tab=${v}`)}>
         <TabsList className="mb-4">
           {tabs.map((t) => (
@@ -644,14 +591,8 @@ export default function SettingsPage() {
         <TabsContent value="profile">
           <ProfileTab />
         </TabsContent>
-        <TabsContent value="scoring">
-          <ConfigTab keys={["matching.weights", "matching.options"]} />
-        </TabsContent>
-        <TabsContent value="pipeline">
-          <ConfigTab keys={["dedup", "clustering"]} />
-        </TabsContent>
         <TabsContent value="collection">
-          <ConfigTab keys={["collection", "backups"]} />
+          <ConfigTab keys={["collection", "dedup", "backups"]} />
         </TabsContent>
         <TabsContent value="categories">
           <CategoriesTab />

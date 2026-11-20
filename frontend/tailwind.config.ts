@@ -40,7 +40,10 @@ export default {
       boxShadow: { pop: "0 8px 30px -12px rgb(0 0 0 / 0.35)" },
       keyframes: {
         "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
-        "slide-in": { from: { transform: "translateY(4px)", opacity: "0" }, to: { transform: "none", opacity: "1" } },
+        // `translate`, not `transform`: dialogs are centred with a transform (-translate-x-1/2), and
+        // animating `transform` replaced it, so a dialog opened half its width to the right and
+        // then jumped into place.
+        "slide-in": { from: { translate: "0 4px", opacity: "0" }, to: { translate: "0 0", opacity: "1" } },
       },
       animation: { "fade-in": "fade-in 120ms ease-out", "slide-in": "slide-in 140ms ease-out" },
     },

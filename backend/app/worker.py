@@ -29,7 +29,7 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    log.info("NEWSWIRE worker %s started", WORKER_ID)
+    log.info("Samyabadi worker %s started", WORKER_ID)
     scheduler.start()
     return 0
 

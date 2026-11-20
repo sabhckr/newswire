@@ -296,10 +296,8 @@ def test_full_editorial_workflow(client, web):
     assert not [c for c in art["checks"] if c["level"] == "error"], art["checks"]
 
     dest = next(d for d in admin.get("/publishing/destinations").json() if d["kind"] == "builtin")
-    # Not approved yet: publishing is refused.
-    early = admin.post(f"/articles/{art_id}/publish", json={"destination_id": dest["id"]})
-    assert early.status_code == 409 and early.json()["error"]["code"] == "not_approved"
-
+    # The classic route: submit for review, approve, then publish. (An administrator may also
+    # publish a draft in one step: tests/test_one_step_publishing.py.)
     assert admin.post(f"/articles/{art_id}/transition", json={"target": "in_review"}).status_code == 200
     appr = admin.post(f"/articles/{art_id}/transition", json={"target": "approved"})
     assert appr.status_code == 200 and appr.json()["status"] == "approved"

@@ -257,7 +257,7 @@ def describe_error(exc: Exception) -> str:
             return msg[:600]
         if "CERTIFICATE_VERIFY_FAILED" in msg:
             return ("The site's HTTPS certificate is not valid (" + msg.split("certificate verify failed:")[-1].split("(_ssl")[0].strip()
-                    + "). NEWSWIRE does not skip certificate checks; the publisher has to fix it.")[:300]
+                    + "). Samyabadi does not skip certificate checks; the publisher has to fix it.")[:300]
         if msg.startswith("DNS lookup failed"):
             return (msg + " (the name does not exist, or this server's DNS is not working)")[:300]
         return f"Connection failed: {msg}"[:300]
@@ -287,18 +287,18 @@ def describe_http_status(resp: SafeResponse) -> str:
     if looks_like_bot_check(resp):
         server = resp.headers.get("server", "").split("/")[0] or "the publisher's bot protection"
         return (f"HTTP {code}: the publisher's bot protection ({server}) asked for a browser check. "
-                "NEWSWIRE does not get around these checks; ask the publisher to allow its "
+                "Samyabadi does not get around these checks; ask the publisher to allow its "
                 "user agent, or use another feed from the same paper.")
     if code in (401, 402):
-        return f"HTTP {code} (login or payment required; NEWSWIRE does not bypass access controls)"
+        return f"HTTP {code} (login or payment required; Samyabadi does not bypass access controls)"
     if code == 403:
-        return (f"HTTP 403: the site refused the request (access restricted; NEWSWIRE does not "
+        return (f"HTTP 403: the site refused the request (access restricted; Samyabadi does not "
                 "bypass access controls). Sites sometimes refuse whole hosting providers' networks; "
                 "if every site does this, the server's IP address may be blocked.")
     if code == 404:
         return "HTTP 404: the address no longer exists (the feed may have moved; try Find feeds)"
     if code == 429:
-        return "HTTP 429: the site asked NEWSWIRE to slow down; it will wait before trying again"
+        return "HTTP 429: the site asked Samyabadi to slow down; it will wait before trying again"
     if code >= 500:
         return f"HTTP {code}: the site had a server error"
     return f"HTTP {code}"

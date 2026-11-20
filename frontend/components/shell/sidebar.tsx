@@ -1,21 +1,29 @@
 "use client";
 
-import { PanelLeftClose, PanelLeftOpen, Radio } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Tip } from "@/components/ui/tooltip";
+import { APP_NAME, APP_SHORT_NAME, APP_TAGLINE, LOGO_SQUARE, LOGO_WIDE } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 import { isActive, NAV } from "./nav";
 
 export function Brand({ collapsed }: { collapsed?: boolean }) {
+  // Plain <img>: the logo is a small static file, and it must also show before anyone signs in.
   return (
-    <Link href="/" className="flex items-center gap-2 px-1 font-semibold tracking-tight" aria-label="NEWSWIRE home">
-      <span className="flex h-7 w-7 items-center justify-center rounded bg-accent text-accent-fg">
-        <Radio className="h-4 w-4" aria-hidden />
-      </span>
-      {!collapsed ? <span className="text-[15px]">NEWSWIRE</span> : null}
+    <Link href="/" className="flex min-w-0 items-center gap-2 px-1" aria-label={`${APP_NAME} home`}>
+      {collapsed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={LOGO_SQUARE} alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded" />
+      ) : (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO_WIDE} alt={APP_SHORT_NAME} width={77} height={36} className="h-9 w-auto shrink-0 rounded" />
+          <span className="text-[10px] font-semibold uppercase leading-[1.15] tracking-wide text-muted">{APP_TAGLINE}</span>
+        </>
+      )}
     </Link>
   );
 }

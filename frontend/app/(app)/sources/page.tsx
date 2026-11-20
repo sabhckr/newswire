@@ -207,7 +207,7 @@ export default function SourcesPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Sources"
-        description="Feeds NEWSWIRE collects from. Fetching respects robots.txt, conditional requests and per-host delays."
+        description="Feeds Samyabadi collects from. Fetching respects robots.txt, conditional requests and per-host delays."
         actions={
           <>
             <Button variant="outline" onClick={() => window.open(downloadUrl("/sources/export"), "_blank")}>
@@ -232,7 +232,7 @@ export default function SourcesPage() {
                     <Package className="h-4 w-4" /> Source packs
                   </Button>
                 </Tip>
-                <Tip content="Import a NEWSWIRE JSON export or an OPML subscription list">
+                <Tip content="Import a Samyabadi JSON export or an OPML subscription list">
                   <Button variant="outline" onClick={() => fileRef.current?.click()} loading={importFile.isPending}>
                     <Upload className="h-4 w-4" /> Import
                   </Button>
@@ -262,9 +262,9 @@ export default function SourcesPage() {
       />
 
       {params.get("welcome") === "1" ? (
-        <InlineAlert tone="info" className="mb-4" title="Welcome to NEWSWIRE">
+        <InlineAlert tone="info" className="mb-4" title="Welcome to Samyabadi">
           Start by adding the feeds you want to monitor. The collection worker (<code className="font-mono">python -m app.worker</code>) fetches every active source
-          on its own schedule, so new stories arrive without anyone keeping this page open. Then create a headline to match stories by keyword and place.
+          on its own schedule, so new stories arrive without anyone keeping this page open. Read them in Live News and start an article from any story.
         </InlineAlert>
       ) : null}
 

@@ -12,6 +12,14 @@
   let bar = null;
   let hovered = null;
   let quietUntil = 0;
+  // The bar can cover a website's own top menu, so the person can send it to the bottom edge.
+  // Remembered for this window (sessionStorage), because every new page starts this script again.
+  let atBottom = false;
+  try {
+    atBottom = sessionStorage.getItem("__nw_teach_bar") === "bottom";
+  } catch (err) {
+    /* storage is blocked on this page */
+  }
 
   // <css-path>
   const unique = (sel) => {
@@ -157,6 +165,32 @@
     return b;
   }
 
+  function moveButton() {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = atBottom ? "\u2191 Move bar up" : "\u2193 Move bar down";
+    b.title = "Move this bar out of the way of the website's own menu";
+    b.style.cssText =
+      "margin-left:8px;padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.55);font:600 13px system-ui;" +
+      "cursor:pointer;background:transparent;color:#fff;";
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      atBottom = !atBottom;
+      try {
+        sessionStorage.setItem("__nw_teach_bar", atBottom ? "bottom" : "top");
+      } catch (err) {
+        /* storage is blocked on this page */
+      }
+      render();
+    });
+    return b;
+  }
+
+  // What the bar currently shows. Redrawing replaces its buttons, and a button replaced between
+  // "mouse down" and "mouse up" swallows the click, so the bar is only redrawn when this changes.
+  let shown = "";
+
   function render() {
     if (!isTop || !document.body) return;
     if (!bar) {
@@ -167,17 +201,26 @@
         "font:14px/1.4 system-ui,sans-serif;padding:10px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;" +
         "box-shadow:0 2px 10px rgba(0,0,0,.35)";
     }
-    if (!bar.isConnected) document.documentElement.appendChild(bar);
+    const reattached = !bar.isConnected;
+    if (reattached) document.documentElement.appendChild(bar);
+    const showing = [state.mode, state.step, state.total, state.message, !!state.optional, atBottom].join("\u0001");
+    if (showing === shown && !reattached && bar.childElementCount) return;
+    shown = showing;
+    bar.style.top = atBottom ? "auto" : "0";
+    bar.style.bottom = atBottom ? "0" : "auto";
     bar.replaceChildren();
     const text = document.createElement("div");
     text.style.cssText = "flex:1;min-width:240px";
     const step = state.total ? `Step ${state.step + 1} of ${state.total}: ` : "";
-    text.innerHTML = "<b>NEWSWIRE setup</b> · ";
+    text.innerHTML = "<b>Samyabadi setup</b> · ";
     text.appendChild(document.createTextNode(step + (state.message || "")));
     bar.appendChild(text);
     if (state.mode === "page") bar.appendChild(button("This is the page", "page", true));
     if (state.mode === "pick" && state.optional) bar.appendChild(button("Skip", "skip", false));
-    if (state.mode === "pick" || state.mode === "page" || state.mode === "login") bar.appendChild(button("Cancel", "cancel", false));
+    if (state.mode === "pick" || state.mode === "page" || state.mode === "login") {
+      bar.appendChild(moveButton());
+      bar.appendChild(button("Cancel", "cancel", false));
+    }
   }
 
   globalThis.__nwTeachSet = (next) => {

@@ -156,7 +156,7 @@ export function MetaAppSettings({ canManage }: { canManage: boolean }) {
               label="App secret"
               htmlFor="meta-app-secret"
               required={!meta.data?.has_secret}
-              hint={meta.data?.has_secret ? "Stored encrypted and never shown. Leave blank to keep it." : "Stored encrypted on this NEWSWIRE."}
+              hint={meta.data?.has_secret ? "Stored encrypted and never shown. Leave blank to keep it." : "Stored encrypted on this Samyabadi."}
             >
               <Input
                 id="meta-app-secret"

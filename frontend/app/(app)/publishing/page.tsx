@@ -381,7 +381,7 @@ function DestinationsTab() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted">
           Add your website with its own admin login, a Facebook Page, an Instagram account or a YouTube channel. Passwords and sign-ins
-          are stored encrypted in NEWSWIRE and are never sent back to the browser.
+          are stored encrypted in Samyabadi and are never sent back to the browser.
         </p>
         {manage ? (
           <Button
@@ -478,8 +478,8 @@ function DestinationsTab() {
                     {needsTeach ? (
                       <p>
                         {manage
-                          ? "Signed in. Click Teach and show NEWSWIRE the website's post form once; then it publishes by itself."
-                          : "An administrator has to show NEWSWIRE this website's post form once."}
+                          ? "Signed in. Click Teach and show Samyabadi the website's post form once; then it publishes by itself."
+                          : "An administrator has to show Samyabadi this website's post form once."}
                       </p>
                     ) : d.last_checked_at && d.last_check_status ? (
                       <p className={cn("line-clamp-2", checkOk ? "text-success" : "text-danger")} title={d.last_check_status ?? undefined}>
@@ -487,7 +487,7 @@ function DestinationsTab() {
                         {d.last_check_status} · <Time value={d.last_checked_at} />
                       </p>
                     ) : choosingPage ? (
-                      <p>Signed in to Facebook. Choose which {d.kind === "instagram" ? "Instagram account" : "Page"} NEWSWIRE posts to.</p>
+                      <p>Signed in to Facebook. Choose which {d.kind === "instagram" ? "Instagram account" : "Page"} Samyabadi posts to.</p>
                     ) : social && !conn?.connected ? (
                       <p>
                         {manage
@@ -537,7 +537,7 @@ function DestinationsTab() {
                           onClick={async () => {
                             const ok = await confirm({
                               title: `Disconnect ${d.name}?`,
-                              body: "NEWSWIRE forgets the sign-in. Posts already published stay online. Scheduled posts here will fail until you connect again.",
+                              body: "Samyabadi forgets the sign-in. Posts already published stay online. Scheduled posts here will fail until you connect again.",
                               confirmLabel: "Disconnect",
                               destructive: true,
                             });

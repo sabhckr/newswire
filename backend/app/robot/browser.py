@@ -160,9 +160,9 @@ class Element:
         self.call(scripts.FOCUS)
 
     def click(self, timeout: float = 5.0) -> None:
-        """A real mouse click in the middle of the element. Waits up to `timeout` for whatever
-        covers or disables it to go away; an element that has no box at all (a hidden input)
-        gets a script click instead."""
+        """A real mouse click in the middle of the element. Waits up to `timeout` for it to stop
+        moving (a dialog still sliding in) and for whatever covers or disables it to go away; an
+        element that has no box at all (a hidden input) gets a script click instead."""
         page = self.page
         deadline = time.monotonic() + timeout
         centered = False
@@ -173,25 +173,27 @@ class Element:
                 pass  # no layout box; the hit test below decides
             info = self.call(scripts.HIT_TEST)
             state = info.get("state")
+            late = time.monotonic() > deadline
             if state == "gone":
                 raise Stale("The element is no longer on the page.")
             if state == "hidden":
                 break
             if info.get("disabled"):
-                if time.monotonic() > deadline:
+                if late:
                     raise RobotError("The button stayed disabled (greyed out), so it could not be pressed.")
-            elif state == "ok":
+            elif state == "ok" and (late or not info.get("moving")):
+                # Still moving after the whole wait (something that never rests): click where it is now.
                 point = self._viewport_point(info)
                 if point is None:
                     break
                 page._mouse_click(*point)
                 return
-            elif time.monotonic() > deadline:
+            elif late:
                 break  # still covered: press it by script rather than give up
-            if not centered:
+            if state == "covered" and not centered:
                 self.call(scripts.CENTER)
                 centered = True
-            time.sleep(0.1)
+            time.sleep(0.05)
         self.call(scripts.JS_CLICK)
 
     def _viewport_point(self, info: dict) -> tuple[float, float] | None:

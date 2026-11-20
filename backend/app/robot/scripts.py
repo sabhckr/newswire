@@ -155,10 +155,16 @@ SELECT_OPTION = """function(el, label) {
   return true;
 }"""
 
-# Where to click, in this frame's own coordinates, and whether the click would really land on
-# the element (not on a banner or dialog covering it).
-HIT_TEST = """function(el) {
+# Where to click, in this frame's own coordinates, whether the click would really land on the
+# element (not on a banner or dialog covering it), and whether the element is still moving (a
+# dialog sliding in, a menu unfolding): a click aimed at something in motion lands beside it.
+HIT_TEST = """async function(el) {
   if (!el.isConnected) return {state: 'gone'};
+  const box = () => { const b = el.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map(Math.round).join(); };
+  const before = box();
+  await new Promise((done) => setTimeout(done, 60));
+  if (!el.isConnected) return {state: 'gone'};
+  const moving = before !== box();
   const rects = Array.from(el.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
   if (!rects.length) return {state: 'hidden'};
   const r = rects[0];
@@ -175,7 +181,7 @@ HIT_TEST = """function(el) {
     ok = !!label && label.control === el;
   }
   const disabled = !!el.disabled || el.getAttribute('aria-disabled') === 'true';
-  return {state: ok ? 'ok' : 'covered', x, y, disabled};
+  return {state: ok ? 'ok' : 'covered', x, y, disabled, moving};
 }"""
 
 CENTER = """function(el) { try { el.scrollIntoView({block: 'center', inline: 'center'}); } catch (e) {} }"""

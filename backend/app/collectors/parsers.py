@@ -357,6 +357,16 @@ def _sitemap_day(value: str | None) -> date | None:
         return None
 
 
+# An "&" that does not start one of XML's own entities or a character reference.
+_BARE_AMPERSAND = re.compile(rb"&(?!(?:amp|lt|gt|quot|apos|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});)")
+# Control characters XML 1.0 does not allow anywhere.
+_XML_CONTROL = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _mend_xml(content: bytes) -> bytes:
+    return _XML_CONTROL.sub(b"", _BARE_AMPERSAND.sub(b"&amp;", content))
+
+
 def parse_sitemap(content: bytes) -> ParsedFeed:
     head = content[:4000].lower()
     if b"<!doctype" in head or b"<!entity" in head:
@@ -365,7 +375,13 @@ def parse_sitemap(content: bytes) -> ParsedFeed:
     try:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
-        raise FeedParseError(f"Malformed sitemap: {exc}"[:300]) from exc
+        # Publishers' sitemaps are often written by hand-made code: one headline with a bare "&"
+        # (or a stray control character) would otherwise lose the whole file. Mend those and try
+        # once more; anything else that is broken is still reported.
+        try:
+            root = ET.fromstring(_mend_xml(content))
+        except ET.ParseError:
+            raise FeedParseError(f"Malformed sitemap: {exc}"[:300]) from exc
     kind = _local(root.tag)
     if kind == "sitemapindex":
         children = []

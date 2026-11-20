@@ -28,7 +28,7 @@ from app.robot.errors import BrowserLaunchError, BrowserNotFound, RobotError
 log = logging.getLogger(__name__)
 
 STARTUP_SECONDS = 30.0
-INSTALL_HINT = ("Install Google Chrome (or Microsoft Edge, Brave or Chromium) on the computer that runs NEWSWIRE, "
+INSTALL_HINT = ("Install Google Chrome (or Microsoft Edge, Brave or Chromium) on the computer that runs Samyabadi, "
                 "or set NEWSWIRE_BROWSER_PATH to the browser's program file.")
 
 
@@ -353,7 +353,7 @@ class ChromeProcess:
             return f"The browser at {self.executable} is missing system libraries: {detail}"
         if "sandbox" in low and "root" in low:
             return ("The browser will not run as the root user without --no-sandbox. Set "
-                    "NEWSWIRE_BROWSER_NO_SANDBOX=1 or run NEWSWIRE as an ordinary user.")
+                    "NEWSWIRE_BROWSER_NO_SANDBOX=1 or run Samyabadi as an ordinary user.")
         return f"The browser at {self.executable} did not start ({error})" + (f": {detail}" if detail else "")
 
     # -- stopping ---------------------------------------------------------------------------------

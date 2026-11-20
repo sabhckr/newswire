@@ -1,4 +1,11 @@
-# NEWSWIRE
+# Samyabadi News Automation Tool
+
+<img src="frontend/public/brand/logo.png" alt="Samyabadi" width="320">
+
+The app is shown to its users as **Samyabadi News Automation Tool**. *NEWSWIRE* is the name of
+the codebase: it remains in this documentation, the `newswire` command, the `NEWSWIRE_*`
+settings and the User-Agent sent to publishers. The displayed name and logo are set in
+`frontend/lib/brand.ts` and `frontend/public/brand/`.
 
 A self-hosted newsroom intelligence and publishing platform that runs without AI and without
 paid services.
@@ -129,6 +136,12 @@ Run it from `frontend/`:
 npm run test:e2e
 ```
 
+To use the Google Chrome already installed instead of the download above:
+
+```bash
+E2E_BROWSER_CHANNEL=chrome npm run test:e2e
+```
+
 The suite starts its own servers on 127.0.0.1 and stops them when it finishes, so a development
 server on ports 3000 and 8000 can keep running. PostgreSQL is not needed.
 
@@ -156,19 +169,17 @@ variables:
    Bangladeshi newspapers in one step, and *Add source → Find feeds* finds the feeds and news
    sitemaps of any other site. Use *Test* before saving to see what a feed returns. The worker
    polls each source on its own interval.
-2. **My Headlines.** Create an assignment: the headline you are researching, its primary
-   keywords, synonyms, required and excluded phrases, and optional countries, sources,
-   category and language.
-3. **Live News and Research.** Matching reports appear with their score and an explanation.
-   Mark each match verified or rejected; rejected matches teach you which keywords to tighten.
-4. **Image Library.** Search Openverse and Wikimedia Commons, check the licence warnings, save
-   and approve images.
-5. **Articles.** Start a draft from a research workspace, write it, attach references and an
-   approved image, then submit it for review.
-6. **Publishing.** Approve the article and publish it to the built-in public API
-   (`/api/v1/public/articles`, `/api/v1/public/feed.xml`), WordPress or a webhook.
+2. **Live News.** Read what was collected, search and filter it, and open a story. *Start
+   article from this* makes a draft from it, with the story as its source.
+3. **Articles.** Rewrite the draft in your own words, add an image from the **Image Library**
+   (Openverse, Wikimedia Commons or your own upload; check the licence warnings) and save.
+4. **Publish.** Tick where it goes (the built-in public API at `/api/v1/public/articles` and
+   `/api/v1/public/feed.xml`, your website, Facebook, Instagram, YouTube) and press *Publish*.
+   Destinations are added under **Publishing**.
 
-The [user guide](docs/USER_GUIDE.md) walks through every page.
+The app's screens were simplified: headline tracking, the research workspace, story clusters,
+analytics and the activity log are no longer in the menu (the server still has them). The
+[user guide](docs/USER_GUIDE.md) was written before that and still describes those pages.
 
 ## Documentation
 
