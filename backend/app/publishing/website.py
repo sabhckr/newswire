@@ -5,8 +5,9 @@ username, and the password.
   password named "NEWSWIRE" for that account and publishes through the WordPress REST API (the
   same code as a WordPress destination). If the application password is later revoked, the stored
   login creates a new one.
-* **Any other site** (a custom admin panel) is published by a robot browser (Playwright +
-  Chromium) that signs in and fills in the site's own "new post" form. An administrator shows it
+* **Any other site** (a custom admin panel) is published by a robot browser: NEWSWIRE's own
+  pure-Python engine (`app/robot`) drives the Chrome, Edge, Brave or Chromium already installed
+  on the computer, signs in and fills in the site's own "new post" form. An administrator shows it
   the form once (*Teach*): a browser window opens on this computer, signs in, and asks them to
   click the title box, the text box, the image upload, the Publish button and so on. The browser's
   session (cookies) is kept, encrypted, so it does not sign in again every time; when the session
@@ -26,10 +27,10 @@ them in the window; publishing then reuses that session for as long as the site 
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
-import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -46,12 +47,17 @@ from app.core.http import SafeResponse, UnsafeURLError, safe_request, validate_u
 from app.models import Article, PublishingDestination
 from app.publishing.connectors import PublishError, RemoteResult, WordPressConnector
 from app.publishing.social import load_secrets, save_secrets, set_config
+from app.robot import (BindingCall, Browser, BrowserClosed, BrowserLaunchError, BrowserNotFound, Element, Page,
+                       RobotError, RobotTimeout)
 
 log = logging.getLogger(__name__)
 
 OVERLAY_JS = (Path(__file__).with_name("teach_overlay.js")).read_text(encoding="utf-8")
-NAV_TIMEOUT_MS = 45_000
-SETTLE_TIMEOUT_MS = 20_000
+# The overlay's "a selector that finds this element again", as a function Python can call too.
+CSS_PATH_JS = ("function(el) {" + OVERLAY_JS.split("// <css-path>")[1].split("// </css-path>")[0]
+               + " return cssPath(el); }")
+NAV_SECONDS = 45.0
+SETTLE_SECONDS = 20.0
 HUMAN_LOGIN_SECONDS = 5 * 60
 TEACH_SECONDS = 20 * 60
 BODY_FORMATS = ("auto", "html", "text")
@@ -254,119 +260,96 @@ def website_summary(dest: PublishingDestination) -> dict:
 
 # --- the robot browser ---------------------------------------------------------------------------------
 
-PASSWORD_FIELD = "input[type=password]:visible"
-USER_FIELDS = ("input[type=email]:visible", "input[autocomplete=username]:visible", "input[name*=user i]:visible",
-               "input[name*=email i]:visible", "input[name*=login i]:visible", "input[type=text]:visible",
-               "input:not([type]):visible")
-SUBMIT_FIELDS = ("button[type=submit]:visible", "input[type=submit]:visible", "button:not([type]):visible",
-                 "[role=button]:visible")
-ERROR_TEXT = ("[role=alert]:visible, .alert-danger:visible, .alert-error:visible, .error:visible, .errors:visible, "
-              ".invalid-feedback:visible, .text-danger:visible, .notice-error:visible, .help-block.error:visible, "
-              ".field-error:visible, .is-invalid:visible")
+PASSWORD_FIELD = "input[type=password]"
+_TYPED = (":not([type=password]):not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=submit])"
+          ":not([type=button]):not([type=file]):not([type=search])")
+USER_FIELDS = ("input[type=email]", "input[autocomplete=username]", f"input[name*=user i]{_TYPED}",
+               f"input[name*=email i]{_TYPED}", f"input[name*=login i]{_TYPED}", f"input[id*=user i]{_TYPED}",
+               f"input[id*=email i]{_TYPED}", "input[type=text]", "input[type=tel]", "input:not([type])")
+SUBMIT_FIELDS = ("button[type=submit]", "input[type=submit]", "button:not([type])", "[role=button]")
+ERROR_TEXT = ("[role=alert]", ".alert-danger", ".alert-error", ".error", ".errors", ".invalid-feedback",
+              ".text-danger", ".notice-error", ".help-block.error", ".field-error", ".is-invalid")
+CAPTCHA = ("iframe[src*=recaptcha]", "iframe[src*=hcaptcha]", "iframe[src*=turnstile]", ".g-recaptcha", ".h-captcha",
+           ".cf-turnstile")
+TWO_STEP = ("input[autocomplete=one-time-code]", "input[name*=otp i]", "input[name*=2fa i]",
+            "input[name*=token i][inputmode=numeric]")
+SCREEN_NEEDED = ("Teaching needs NEWSWIRE running on a computer with a screen (it opens a browser window). Run it "
+                 "on your Mac or PC for this one-time step.")
 
 
-def _python() -> str:
-    """This NEWSWIRE's own Python, quoted, so the install hint works as typed on macOS, Linux and Windows."""
-    return f'"{sys.executable}"' if " " in sys.executable else sys.executable
-
-
-def _sync_playwright():
+def open_browser(*, headless: bool, storage_state: dict | None = None, **kwargs) -> Browser:
+    """Start the robot browser, turning "cannot start" into words an administrator can act on."""
     try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:  # pragma: no cover - installed with the backend requirements
-        raise PublishError("The robot browser is not installed on this computer. In a terminal on this computer, run: "
-                           f"{_python()} -m pip install playwright  and then  {_python()} -m playwright install chromium"
-                           "  — then try again.", retryable=False) from exc
-    return sync_playwright
+        return Browser.launch(headless=headless, executable=get_settings().browser_path or None,
+                              storage_state=storage_state, **kwargs)
+    except BrowserNotFound as exc:
+        raise PublishError(str(exc), retryable=False) from exc
+    except BrowserLaunchError as exc:
+        if not headless and "no screen" in str(exc):
+            raise PublishError(SCREEN_NEEDED, retryable=False) from exc
+        raise PublishError(f"The robot browser did not start. {exc}") from exc
 
 
-def _launch(p, *, headless: bool):
+def _quiet(fn: Callable[[], Any], default: Any = None) -> Any:
+    """Looking at a page that is busy changing: a failed look is "not there". A closed browser is
+    still an error."""
     try:
-        return p.chromium.launch(headless=headless)
-    except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        if "Executable doesn't exist" in msg or "playwright install" in msg:
-            raise PublishError("The robot browser is not installed on this computer. In a terminal on this computer, "
-                               f"run: {_python()} -m playwright install chromium  — then try again.",
-                               retryable=False) from exc
-        if not headless and ("display" in msg.lower() or "headed" in msg.lower()):
-            raise PublishError("Teaching needs NEWSWIRE running on a computer with a screen (it opens a browser "
-                               "window). Run it on your Mac or PC for this one-time step.", retryable=False) from exc
+        return fn()
+    except BrowserClosed:
         raise
+    except RobotError:
+        return default
 
 
-def _visible(locator) -> bool:
-    try:
-        return locator.count() > 0 and locator.first.is_visible()
-    except Exception:  # noqa: BLE001
-        return False
+def _seen(page: Page, *selectors: str) -> bool:
+    return _quiet(lambda: page.find(*selectors) is not None, False)
 
 
-def needs_login(page) -> bool:
-    return _visible(page.locator(PASSWORD_FIELD))
+def needs_login(page: Page) -> bool:
+    return _seen(page, PASSWORD_FIELD)
 
 
-def _first(page_or_scope, selectors) -> Any | None:
-    for sel in selectors:
-        loc = page_or_scope.locator(sel)
-        if _visible(loc):
-            return loc.first
-    return None
-
-
-def _settle(page, ms: int = SETTLE_TIMEOUT_MS) -> None:
-    try:
-        page.wait_for_load_state("networkidle", timeout=ms)
-    except Exception:  # noqa: BLE001 - busy pages never go idle; carry on
-        pass
-
-
-def _blocked_reason(page) -> str | None:
-    if _visible(page.locator("iframe[src*=recaptcha], iframe[src*=hcaptcha], iframe[src*=turnstile], .g-recaptcha, "
-                             ".h-captcha, .cf-turnstile")):
+def _blocked_reason(page: Page) -> str | None:
+    if _seen(page, *CAPTCHA):
         return "captcha"
-    if _visible(page.locator("input[autocomplete=one-time-code], input[name*=otp i], input[name*=2fa i], "
-                             "input[name*=token i][inputmode=numeric]")):
+    if _seen(page, *TWO_STEP):
         return "two-step"
     return None
 
 
-def login(page, login_url: str, username: str, password: str) -> None:
+def _error_text(page: Page, limit: int = 250) -> str:
+    """What the page says went wrong (the first visible error message with words in it)."""
+    for selector in ERROR_TEXT:
+        text = _quiet(lambda sel=selector: (lambda el: el.inner_text() if el is not None else "")(page.find(sel)), "")
+        if text:
+            return " ".join(text.split())[:limit]
+    return ""
+
+
+def login(page: Page, login_url: str, username: str, password: str) -> None:
     """Sign in on the login page. Raises PublishError with a plain explanation when it cannot."""
-    page.goto(login_url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-    _settle(page, 8_000)
-    if not needs_login(page):
+    page.goto(login_url, timeout=NAV_SECONDS)
+    page.settle(8)
+    pw = page.find(PASSWORD_FIELD)
+    if pw is None:
         return  # the stored session is still signed in
-    pw = page.locator(PASSWORD_FIELD).first
-    form = pw.locator("xpath=ancestor::form[1]")
-    scope = form if form.count() else page
-    user = None
+    form = pw.closest("form")
     # A username/email box shown on the same form as the password (not a search box elsewhere).
-    for sel in USER_FIELDS:
-        loc = scope.locator(sel)
-        if _visible(loc):
-            user = loc.first
-            break
+    user = page.find(*USER_FIELDS, root=form)
     if user is not None:
         user.fill(username)
     pw.fill(password)
-    submit = _first(scope, SUBMIT_FIELDS)
+    submit = page.find(*SUBMIT_FIELDS, root=form)
     if submit is not None:
         submit.click()
     else:
         pw.press("Enter")
-    try:
-        page.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
-    except Exception:  # noqa: BLE001
-        pass
-    _settle(page, 10_000)
+    page.settle(10, quiet=1.0)
     if needs_login(page):
-        reason = _blocked_reason(page)
-        if reason == "captcha":
+        if _blocked_reason(page) == "captcha":
             raise PublishError("The website's login asks for a captcha. Click Teach in NEWSWIRE and complete it in "
                                "the window once; NEWSWIRE then keeps that session.", retryable=False)
-        err = page.locator(ERROR_TEXT)
-        detail = err.first.inner_text().strip()[:200] if _visible(err) else ""
+        detail = _error_text(page, 200)
         raise PublishError("The website did not accept the admin email and password"
                            + (f": {detail}" if detail else ". Check them under Edit."), retryable=False)
     if _blocked_reason(page) == "two-step":
@@ -374,22 +357,20 @@ def login(page, login_url: str, username: str, password: str) -> None:
                            "window once; NEWSWIRE then keeps that session.", retryable=False)
 
 
-def _resolve(page, field: dict):
-    """A locator for a taught field. Falls back to the visible text of a taught button."""
-    sel = field.get("selector") or ""
-    loc = page.locator(sel) if sel else None
-    if loc is not None and _visible(loc):
-        return loc.first
+def _resolve(page: Page, field: dict) -> Element | None:
+    """The element for a taught field. Falls back to the visible text of a taught button."""
+    selector = field.get("selector") or ""
+    if selector:
+        el = page.find(selector)
+        if el is not None:
+            return el
     text = (field.get("text") or "").strip()
     if text and field.get("tag") in ("button", "a", "input"):
-        by_text = page.get_by_role("button", name=text)
-        if _visible(by_text):
-            return by_text.first
-        by_text = page.locator(f"text={json.dumps(text)}")
-        if _visible(by_text):
-            return by_text.first
-    if loc is not None and loc.count():
-        return loc.first  # present but hidden (a styled file input)
+        el = page.find_button(text) or page.find_text(text)
+        if el is not None:
+            return el
+    if selector:
+        return page.find(selector, visible=False)  # present but hidden (a styled file input)
     return None
 
 
@@ -398,6 +379,10 @@ def article_text(html_body: str) -> str:
     blocks = [b.get_text(" ", strip=True) for b in soup.find_all(["p", "h2", "h3", "h4", "li", "blockquote"])]
     text = "\n\n".join(b for b in blocks if b)
     return text or soup.get_text("\n", strip=True)
+
+
+def _text_as_html(text: str) -> str:
+    return "".join(f"<p>{html.escape(block).replace(chr(10), '<br>')}</p>" for block in text.split("\n\n") if block)
 
 
 PASTE_JS = """(el, {html, text}) => {
@@ -428,70 +413,63 @@ RICH_TEXTAREA_JS = """(el, html) => {
 }"""
 
 
-def _type_into(loc, value: str) -> None:
-    kind = loc.evaluate("e => e.isContentEditable ? 'editable' : e.tagName.toLowerCase()")
-    if kind == "editable":
-        loc.click()
-        loc.press("ControlOrMeta+a")
-        loc.page.keyboard.insert_text(value)
-    elif kind == "select":
-        try:
-            loc.select_option(label=value)
-        except Exception:  # noqa: BLE001 - no such option; leave the site's default
-            pass
-    else:
-        loc.fill(value)
+def _type_into(el: Element, value: str) -> None:
+    """Text boxes and rich-text boxes are typed into; a list gets the option with that name (and
+    keeps the site's default when it has none)."""
+    el.fill(value)
 
 
-def _fill_body(page, field: dict, html_body: str, fmt: str) -> None:
+def _fill_body(page: Page, field: dict, html_body: str, fmt: str) -> None:
     text = article_text(html_body)
-    if field.get("frame"):
-        frame_el = _resolve(page, field)
-        frame = frame_el.content_frame() if frame_el is not None else None
-        if frame is None:
-            raise PublishError("The article text box was not found (it was inside a frame). Click Teach again.",
-                               retryable=False)
-        body = frame.locator("body")
-        body.evaluate(PASTE_JS, {"html": html_body if fmt != "text" else "", "text": text})
-        return
-    loc = _resolve(page, field)
-    if loc is None:
+    rich = html_body if fmt != "text" else _text_as_html(text)
+    el = _resolve(page, field)
+    if el is None:
         raise PublishError("The article text box was not found on the post form. The site may have changed: click "
                            "Teach again.", retryable=False)
-    info = loc.evaluate("e => ({tag: e.tagName.toLowerCase(), editable: e.isContentEditable})")
-    if info["editable"]:
-        loc.evaluate(PASTE_JS, {"html": html_body if fmt != "text" else text.replace("\n", "<br>"), "text": text})
+    kind = el.kind()
+    if field.get("frame") or kind == "iframe":
+        # An editor that lives in its own frame (TinyMCE and similar).
+        frame = el.content_frame()
+        body = None
+        if frame is not None:
+            page.wait_for(lambda: frame.body() is not None, 10)
+            body = frame.body()
+        if body is None:
+            raise PublishError("The article text box was not found (it was inside a frame). Click Teach again.",
+                               retryable=False)
+        body.call(PASTE_JS, {"html": rich, "text": text})
         return
-    if info["tag"] == "iframe":
-        frame = loc.content_frame()
-        frame.locator("body").evaluate(PASTE_JS, {"html": html_body, "text": text})
+    if kind == "editable":
+        el.call(PASTE_JS, {"html": rich, "text": text})
         return
-    if info["tag"] == "textarea" and fmt != "text" and loc.evaluate(RICH_TEXTAREA_JS, html_body):
+    if kind == "textarea" and fmt != "text" and el.call(RICH_TEXTAREA_JS, html_body):
         return
-    loc.fill(html_body if fmt == "html" else text)
+    el.fill(html_body if fmt == "html" else text)
 
 
-def _attach_image(page, field: dict, path: Path) -> None:
-    loc = _resolve(page, field)
-    if loc is None:
+def _attach_image(page: Page, field: dict, path: Path) -> None:
+    el = _resolve(page, field)
+    if el is None:
         raise PublishError("The image upload on the post form was not found. Click Teach again, or Skip the image "
                            "step.", retryable=False)
-    is_file = loc.evaluate("e => e.tagName === 'INPUT' && e.type === 'file'")
-    if is_file:
-        loc.set_input_files(str(path))
+    if el.kind() == "input:file":
+        el.set_files(path)
     else:
-        with page.expect_file_chooser(timeout=15_000) as chooser:
-            loc.click()
-        chooser.value.set_files(str(path))
-    _settle(page, 15_000)
+        try:
+            page.choose_files(el, path)
+        except RobotTimeout as exc:
+            raise PublishError("The image upload on the post form did not open a file window when pressed. Click "
+                               "Teach again and click the upload box itself, or Skip the image step.",
+                               retryable=False) from exc
+    page.settle(15)
 
 
-def _screenshot(page, dest_id) -> str | None:
+def _screenshot(page: Page, dest_id) -> str | None:
     try:
         folder = get_settings().logs_dir / "robot"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{dest_id}-{time.strftime('%Y%m%d-%H%M%S')}.png"
-        page.screenshot(path=str(path), full_page=True)
+        page.screenshot(path, full_page=True)
         return str(path.relative_to(get_settings().storage_dir))
     except Exception:  # noqa: BLE001
         return None
@@ -513,38 +491,37 @@ class RobotConnector:
         self.headless = headless
 
     @contextmanager
-    def _browser(self) -> Iterator[Any]:
+    def _browser(self) -> Iterator[Page]:
         lock = _lock(self.dest.id)
         if not lock.acquire(timeout=10 * 60):
             raise PublishError("The robot browser is busy with this website (teaching or another post); "
                                "NEWSWIRE will try again.")
         try:
-            with _sync_playwright()() as p:
-                browser = _launch(p, headless=self.headless)
-                try:
-                    state = load_secrets(self.dest).get("storage_state")
-                    ctx = browser.new_context(storage_state=state or None, accept_downloads=False)
-                    ctx.set_default_timeout(NAV_TIMEOUT_MS)
-                    page = ctx.new_page()
-                    yield page
-                    sec = load_secrets(self.dest)
-                    save_secrets(self.dest, {**sec, "storage_state": ctx.storage_state()})
-                finally:
-                    browser.close()
+            browser = open_browser(headless=self.headless, storage_state=load_secrets(self.dest).get("storage_state"))
+            try:
+                yield browser.page
+                sec = load_secrets(self.dest)
+                save_secrets(self.dest, {**sec, "storage_state": browser.storage_state()})
+            finally:
+                browser.close()
+        except BrowserClosed as exc:
+            raise PublishError("The robot browser closed before it had finished; NEWSWIRE will try again.") from exc
+        except RobotError as exc:
+            raise PublishError(f"The robot browser could not finish: {exc}") from exc
         finally:
             lock.release()
 
-    def _open_form(self, page) -> None:
+    def _open_form(self, page: Page) -> None:
         url = self.recipe.get("new_post_url")
         if not url:
             raise PublishError("Show NEWSWIRE the website's post form first: Publishing → Destinations → Teach.",
                                retryable=False)
-        page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        _settle(page)
+        page.goto(url, timeout=NAV_SECONDS)
+        page.settle(SETTLE_SECONDS)
         if needs_login(page) or urlsplit(page.url).path.rstrip("/") == urlsplit(self.login_url).path.rstrip("/"):
             login(page, self.login_url, self.username, self.password)
-            page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-            _settle(page)
+            page.goto(url, timeout=NAV_SECONDS)
+            page.settle(SETTLE_SECONDS)
         if needs_login(page):
             raise PublishError("The website keeps asking to sign in. Check the admin login under Edit.", retryable=False)
 
@@ -564,68 +541,66 @@ class RobotConnector:
         img_path = get_settings().images_dir / img.local_path if img is not None and img.local_path else None
         with self._browser() as page:
             try:
-                self._open_form(page)
-                title = _resolve(page, fields["title"])
-                if title is None:
-                    raise PublishError("The title box was not found on the post form. The site may have changed: "
-                                       "click Teach again.", retryable=False)
-                _type_into(title, article.headline)
-                _fill_body(page, fields["body"], html_body, self.body_format)
-                if fields.get("excerpt") and (article.excerpt or article.seo_description):
-                    loc = _resolve(page, fields["excerpt"])
-                    if loc is not None:
-                        _type_into(loc, article.excerpt or article.seo_description or "")
-                if fields.get("tags") and article.tags:
-                    loc = _resolve(page, fields["tags"])
-                    if loc is not None:
-                        _type_into(loc, ", ".join(t.name for t in article.tags))
-                if fields.get("category") and article.category:
-                    loc = _resolve(page, fields["category"])
-                    if loc is not None:
-                        _type_into(loc, article.category.name)
-                if fields.get("image") and img_path is not None and img_path.is_file():
-                    _attach_image(page, fields["image"], img_path)
-                submit = _resolve(page, self.recipe["submit"])
-                if submit is None:
-                    raise PublishError("The Publish button was not found on the post form. Click Teach again.",
-                                       retryable=False)
-                before = page.url
-                submit.click()
-                try:
-                    page.wait_for_url(lambda u: u != before, timeout=15_000)
-                except Exception:  # noqa: BLE001 - single-page admin panels stay on one address
-                    pass
-                _settle(page)
-                if needs_login(page):
-                    raise PublishError("The website signed NEWSWIRE out while posting; it will try again.")
-                errors = page.locator(ERROR_TEXT)
-                if page.url == before and _visible(errors):
-                    raise PublishError(f"The website did not accept the post: {errors.first.inner_text().strip()[:250]}",
-                                       retryable=False)
-                link = self._find_link(page, article.headline)
-                return RemoteResult(link or page.url, link or page.url, "published",
-                                    {"landed_on": page.url, "robot": True})
+                return self._fill_and_submit(page, article, fields, html_body, img_path)
             except PublishError as exc:
                 shot = _screenshot(page, self.dest.id)
                 raise PublishError(f"{exc}" + (f" (screenshot: storage/{shot})" if shot else ""), exc.retryable) from exc
-            except Exception as exc:  # noqa: BLE001 - browser timeouts and crashes
+            except BrowserClosed:
+                raise
+            except Exception as exc:  # noqa: BLE001 - a page that would not load, a form that changed mid-way
                 shot = _screenshot(page, self.dest.id)
                 raise PublishError(f"The robot browser could not finish: {str(exc).splitlines()[0][:200]}"
                                    + (f" (screenshot: storage/{shot})" if shot else "")) from exc
 
+    def _fill_and_submit(self, page: Page, article, fields: dict, html_body: str, img_path: Path | None) -> RemoteResult:
+        self._open_form(page)
+        title = _resolve(page, fields["title"])
+        if title is None:
+            raise PublishError("The title box was not found on the post form. The site may have changed: "
+                               "click Teach again.", retryable=False)
+        _type_into(title, article.headline)
+        _fill_body(page, fields["body"], html_body, self.body_format)
+        if fields.get("excerpt") and (article.excerpt or article.seo_description):
+            el = _resolve(page, fields["excerpt"])
+            if el is not None:
+                _type_into(el, article.excerpt or article.seo_description or "")
+        if fields.get("tags") and article.tags:
+            el = _resolve(page, fields["tags"])
+            if el is not None:
+                _type_into(el, ", ".join(t.name for t in article.tags))
+        if fields.get("category") and article.category:
+            el = _resolve(page, fields["category"])
+            if el is not None:
+                _type_into(el, article.category.name)
+        if fields.get("image") and img_path is not None and img_path.is_file():
+            _attach_image(page, fields["image"], img_path)
+        submit = _resolve(page, self.recipe["submit"])
+        if submit is None:
+            raise PublishError("The Publish button was not found on the post form. Click Teach again.",
+                               retryable=False)
+        before = page.url
+        submit.click(timeout=30)  # a button that is greyed out while the photo uploads is waited for
+        # A classic form loads a new page; a single-page admin panel saves in the background and
+        # stays on one address. Either way: wait until the page has finished and gone quiet.
+        page.settle(SETTLE_SECONDS, quiet=1.5)
+        if needs_login(page):
+            raise PublishError("The website signed NEWSWIRE out while posting; it will try again.")
+        if page.url == before:
+            detail = _error_text(page)
+            if detail:
+                raise PublishError(f"The website did not accept the post: {detail}", retryable=False)
+        link = self._find_link(page, article.headline)
+        return RemoteResult(link or page.url, link or page.url, "published", {"landed_on": page.url, "robot": True})
+
     @staticmethod
-    def _find_link(page, headline: str) -> str | None:
+    def _find_link(page: Page, headline: str) -> str | None:
         """The public link of the new post, when the page after Publish shows one."""
-        candidates = [page.get_by_role("link", name=headline[:80])]
-        candidates += [page.get_by_role("link", name=re.compile(r"^(view|see|open|preview)\b.*(post|article|news)?", re.I))]
-        for loc in candidates:
-            try:
-                if loc.count():
-                    href = loc.first.get_attribute("href")
-                    if href and not href.startswith(("#", "javascript:")):
-                        return urljoin(page.url, href)
-            except Exception:  # noqa: BLE001
-                continue
+        looks = (lambda: page.find_link(headline[:80]),
+                 lambda: page.find_link("", pattern=r"^(view|see|open|preview)\b"))
+        for look in looks:
+            href = _quiet(lambda look=look: (lambda el: el.attribute("href") if el is not None else None)(look()))
+            if href and not href.startswith(("#", "javascript:")):
+                return urljoin(page.url, href)
         return None
 
     def unpublish(self, article, publication, client) -> RemoteResult:
@@ -644,13 +619,13 @@ class RobotConnector:
             self._open_form(page)
             fields = self.recipe.get("fields") or {}
             found = [k for k in ("title", "body", "image", "excerpt", "tags", "category")
-                     if k in fields and (fields[k].get("frame") or _resolve(page, fields[k]) is not None)]
+                     if k in fields and _resolve(page, fields[k]) is not None]
             missing = [k for k in ("title", "body") if k not in found]
-            if missing or _resolve(page, self.recipe.get("submit") or {}) is None:
-                raise PublishError("Signed in, but the post form looks different now (missing: "
-                                   + ", ".join(missing + ([] if _resolve(page, self.recipe.get("submit") or {}) else
-                                                          ["publish button"])) + "). Click Teach again.",
-                                   retryable=False)
+            if _resolve(page, self.recipe.get("submit") or {}) is None:
+                missing.append("publish button")
+            if missing:
+                raise PublishError("Signed in, but the post form looks different now (missing: " + ", ".join(missing)
+                                   + "). Click Teach again.", retryable=False)
             return "Signed in; the post form has " + ", ".join(found) + " and the publish button."
 
 
@@ -670,6 +645,7 @@ TEACH_STEPS = [
     {"key": "submit", "mode": "pick",
      "message": "Click the PUBLISH (or Save / Submit) button. Don't worry: NEWSWIRE will not press it now."},
 ]
+WINDOW_CLOSED = "The setup window was closed, so teaching stopped; nothing was changed. Click Teach to start again."
 
 _sessions: dict[str, "TeachSession"] = {}
 _sessions_guard = threading.Lock()
@@ -679,7 +655,7 @@ class TeachSession:
     """One teaching run in its own thread; the web app polls `status()`."""
 
     def __init__(self, dest: PublishingDestination, *, headless: bool = False,
-                 driver: Callable[[Any, str], None] | None = None, session_factory=None):
+                 driver: Callable[[Page, str], None] | None = None, session_factory=None):
         sec = load_secrets(dest)
         self.dest_id = dest.id
         self.login_url = dest.base_url or ""
@@ -693,79 +669,105 @@ class TeachSession:
                                       "message": "Opening the browser window…", "error": None, "optional": False}
         self.answer: dict | None = None
         self.cancelled = False
+        self.browser: Browser | None = None
         self.thread = threading.Thread(target=self._run, name=f"teach-{dest.id}", daemon=True)
 
-    # bindings called from the page ------------------------------------------------------------------
-    def _js_state(self, source) -> dict:
+    # called by the overlay in the page (on the browser connection's thread: no waiting here) --------
+    def _overlay_state(self) -> dict:
         return {k: self.state.get(k) for k in ("mode", "step", "total", "message", "optional")}
 
-    def _js_pick(self, source, info) -> None:
-        if self.state.get("mode") == "pick" and isinstance(info, dict):
-            self.answer = {**info, "_frame": source.get("frame")}
+    def _from_overlay(self, call: BindingCall) -> None:
+        try:
+            msg = json.loads(call.payload)
+        except ValueError:
+            return
+        if not isinstance(msg, dict):
+            return
+        current = msg.get("step") == self.state.get("step") and self.answer is None
+        if msg.get("type") == "pick" and current and self.state.get("mode") == "pick":
+            info = msg.get("info")
+            if isinstance(info, dict):
+                self.answer = {**info, "_frame": call.frame_id, "_page": call.page}
+        elif msg.get("type") == "action":
+            name = msg.get("name")
+            if name == "cancel":
+                self.cancelled = True
+            elif name == "page" and current and self.state.get("mode") == "page":
+                self.answer = {"url": call.page.url, "_page": call.page}
+            elif name == "skip" and current and self.state.get("optional"):
+                self.answer = {"skip": True}
+        call.reply(self._overlay_call())
 
-    def _js_action(self, source, name) -> None:
-        if name == "cancel":
-            self.cancelled = True
-        elif name == "page" and self.state.get("mode") == "page":
-            self.answer = {"url": source["page"].url}
-        elif name == "skip" and self.state.get("optional"):
-            self.answer = {"skip": True}
+    def _overlay_call(self) -> str:
+        return "globalThis.__nwTeachSet && globalThis.__nwTeachSet(" + json.dumps(self._overlay_state()) + ")"
 
     def status(self) -> dict:
         return {k: self.state.get(k) for k in ("state", "mode", "step", "total", "message", "error")}
 
     def _set(self, **values) -> None:
         self.state.update(values)
+        self._push()
 
-    @staticmethod
-    def _push(page) -> None:
+    def _push(self) -> None:
         """Show the new instruction at once instead of at the overlay's next poll."""
-        try:
-            page.evaluate("() => window.__nwRefresh && window.__nwRefresh()")
-        except Exception:  # noqa: BLE001 - mid-navigation; the overlay polls anyway
-            pass
+        browser = self.browser
+        if browser is None:
+            return
+        for page in browser.pages:
+            page.run_in_world(self._overlay_call())
 
-    def _wait(self, page, deadline: float, until: Callable[[], bool]) -> None:
-        while not until():
+    def _wait(self, deadline: float, until: Callable[[], bool]) -> None:
+        browser = self.browser
+        while True:
             if self.cancelled:
                 raise _Cancelled()
-            if page.is_closed():
-                raise _Cancelled()
+            if not browser.alive:
+                raise BrowserClosed(WINDOW_CLOSED)
+            if _quiet(until, False):
+                return
             if time.monotonic() > deadline:
                 raise SetupError("Teaching took too long and was stopped. Click Teach to start again.")
-            page.wait_for_timeout(250)
+            time.sleep(0.25)
 
     def _run(self) -> None:
         lock = _lock(self.dest_id)
-        if not lock.acquire(timeout=5):
-            self._set(state="failed", mode="idle", error="The robot browser is busy publishing to this website. "
-                                                         "Try Teach again in a minute.")
+        if not lock.acquire(timeout=15):
+            self.state.update(state="failed", mode="idle", error="The robot browser is busy publishing to this website. "
+                                                                 "Try Teach again in a minute.")
             return
+        cancelled = {"state": "cancelled", "mode": "idle", "message": "Teaching was cancelled; nothing was changed."}
         try:
-            with _sync_playwright()() as p:
-                browser = _launch(p, headless=self.headless)
-                try:
-                    self._teach(browser)
-                finally:
-                    browser.close()
+            self.browser = open_browser(headless=self.headless, storage_state=self.storage_state,
+                                        scripts=[(OVERLAY_JS, True)], bindings={"__nwTeach": (self._from_overlay, True)})
+            self._teach(self.browser)
+            outcome = {"state": "done", "mode": "idle", "message": "Done. NEWSWIRE now knows this website's post form."}
         except _Cancelled:
-            self._set(state="cancelled", mode="idle", message="Teaching was cancelled; nothing was changed.")
+            outcome = cancelled
+        except BrowserClosed:
+            # The person closed the window (or the browser quit): that is a way of cancelling.
+            outcome = cancelled if self.cancelled else {**cancelled, "message": WINDOW_CLOSED}
         except (SetupError, PublishError) as exc:
-            self._set(state="failed", mode="idle", error=str(exc))
+            outcome = {"state": "failed", "mode": "idle", "error": str(exc)}
+        except RobotError as exc:
+            log.warning("teaching failed: %s", exc)
+            outcome = {"state": "failed", "mode": "idle", "error": f"The setup browser stopped: {str(exc)[:300]}"}
         except Exception as exc:  # noqa: BLE001
             log.exception("teaching failed")
-            self._set(state="failed", mode="idle", error=f"The setup browser stopped: {str(exc).splitlines()[0][:200]}")
+            outcome = {"state": "failed", "mode": "idle",
+                       "error": f"The setup browser stopped: {str(exc).splitlines()[0][:200]}"}
         finally:
+            browser, self.browser = self.browser, None
+            try:
+                if browser is not None:
+                    browser.close()
+            except Exception:  # noqa: BLE001
+                log.exception("closing the setup browser failed")
             lock.release()
+        # Only now is this run over: the window is gone and the website is free for the next one.
+        self.state.update(outcome)
 
-    def _teach(self, browser) -> None:
-        ctx = browser.new_context(storage_state=self.storage_state or None, viewport=None if not self.headless else
-                                  {"width": 1280, "height": 900})
-        ctx.expose_binding("__nwTeachState", self._js_state)
-        ctx.expose_binding("__nwTeachPick", self._js_pick)
-        ctx.expose_binding("__nwTeachAction", self._js_action)
-        ctx.add_init_script(OVERLAY_JS)
-        page = ctx.new_page()
+    def _teach(self, browser: Browser) -> None:
+        page = browser.page
         deadline = time.monotonic() + TEACH_SECONDS
         self._set(state="running", mode="login", message="Signing in to the admin panel…")
         try:
@@ -776,27 +778,27 @@ class TeachSession:
             # A captcha or a two-step code: the person finishes signing in in this window.
             self._set(message="Finish signing in in this window (captcha or code), then wait a moment.")
             human_deadline = time.monotonic() + HUMAN_LOGIN_SECONDS
-            self._wait(page, human_deadline, lambda: not needs_login(page) and _blocked_reason(page) is None)
+            self._wait(human_deadline, lambda: not any(needs_login(p) or _blocked_reason(p) for p in browser.pages))
         recipe: dict[str, Any] = {"fields": {}}
         for index, step in enumerate(TEACH_STEPS):
             self.answer = None
             self._set(mode=step["mode"], step=index, message=step["message"], optional=bool(step.get("optional")))
-            self._push(page)
             if self.driver is not None:
-                self.driver(page, step["key"])
-            self._wait(page, deadline, lambda: self.answer is not None)
-            answer = self.answer or {}
+                self.driver(browser.page, step["key"])
+            self._wait(deadline, lambda: self.answer is not None)
+            answer = dict(self.answer or {})
             if answer.get("skip"):
                 continue
             if step["key"] == "page":
                 recipe["new_post_url"] = answer["url"]
                 continue
-            frame = answer.pop("_frame", None)
+            frame_id, origin = answer.pop("_frame", None), answer.pop("_page", None)
             field = {k: answer.get(k) for k in ("selector", "tag", "type", "editable", "text")}
-            if frame is not None and frame != page.main_frame:
+            if origin is not None and frame_id and frame_id != origin.main_frame_id:
                 # A click inside an embedded editor (TinyMCE and similar): remember the frame itself.
-                handle = frame.frame_element()
-                field = {"selector": handle.evaluate("e => window.__nwCssPath(e)"), "tag": "iframe", "frame": True}
+                owner = _quiet(lambda: origin.frame_owner(frame_id))
+                selector = _quiet(lambda: owner.call(CSS_PATH_JS), "") if owner is not None else ""
+                field = {"selector": selector, "tag": "iframe", "frame": True}
             if not field.get("selector"):
                 raise SetupError("NEWSWIRE could not identify what you clicked. Click Teach and try again.")
             if step["key"] == "submit":
@@ -804,9 +806,8 @@ class TeachSession:
             else:
                 recipe["fields"][step["key"]] = field
         self._set(mode="idle", message="Saving what you showed…")
-        state = ctx.storage_state()
+        state = browser.storage_state()
         self._save(recipe, state)
-        self._set(state="done", mode="idle", message="Done. NEWSWIRE now knows this website's post form.")
 
     def _save(self, recipe: dict, storage_state: dict) -> None:
         from app.core.db import SessionLocal
@@ -835,7 +836,7 @@ class _Cancelled(Exception):
 def start_teaching(dest: PublishingDestination, **kwargs) -> TeachSession:
     with _sessions_guard:
         current = _sessions.get(str(dest.id))
-        if current is not None and current.thread.is_alive():
+        if current is not None and current.thread.is_alive() and current.state.get("state") in ("starting", "running"):
             return current
         session = TeachSession(dest, **kwargs)
         _sessions[str(dest.id)] = session
@@ -858,6 +859,6 @@ def cancel_teaching(dest_id) -> bool:
 
 __all__ = [
     "RobotConnector", "SetupError", "TEACH_STEPS", "WordPressLoginConnector", "cancel_teaching", "detect_wordpress",
-    "setup_website", "start_teaching", "teaching_status", "website_connector", "website_problem", "website_summary",
-    "wordpress_setup",
+    "open_browser", "setup_website", "start_teaching", "teaching_status", "website_connector", "website_problem",
+    "website_summary", "wordpress_setup",
 ]

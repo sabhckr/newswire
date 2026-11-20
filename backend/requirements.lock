@@ -26,7 +26,6 @@ MarkupSafe==3.0.4
 nh3==0.3.7
 opentelemetry-api==1.45.2
 pillow==13.0.0
-playwright==1.65.1
 psycopg-binary==3.3.9
 psycopg==3.3.9
 pycparser==3.12

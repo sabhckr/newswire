@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     youtube_api_url: str = "https://www.googleapis.com/youtube/v3"
     youtube_upload_url: str = "https://www.googleapis.com/upload/youtube/v3"
 
+    # Robot browser (publishing through a website's own admin panel). Empty = find Google Chrome,
+    # Chromium, Edge or Brave on this computer; otherwise the full path of the browser program.
+    browser_path: str = ""
+
     # Backups
     backup_encryption_key: str = ""
     pg_dump_path: str = "pg_dump"

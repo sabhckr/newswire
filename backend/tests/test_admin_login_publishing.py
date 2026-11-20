@@ -2,8 +2,9 @@
 
 * WordPress behind an admin login: an in-process fake WordPress (login form, REST nonce,
   application passwords, posts).
-* Any other site: a real Chromium (Playwright) drives a small admin panel served on 127.0.0.1,
-  is taught the post form once, and publishes through it. Skipped if Chromium is not installed.
+* Any other site: NEWSWIRE's robot engine (app/robot) drives a real browser from this computer
+  against a small admin panel served on 127.0.0.1, is taught the post form once, and publishes
+  through it. Skipped if no Chromium-family browser is installed.
 * Facebook and Instagram through the Meta app saved once under Settings → Integrations.
 """
 
@@ -269,18 +270,17 @@ def test_wordpress_login_with_captcha_is_explained(client, web):
 # --- any other site: the robot browser ---------------------------------------------------------------
 
 
-def _chromium_ready() -> bool:
-    try:
-        from playwright.sync_api import sync_playwright
+def _browser_ready() -> bool:
+    from app import robot
 
-        with sync_playwright() as p:
-            p.chromium.launch(headless=True).close()
+    try:
+        robot.find_browser(headless=True)
         return True
-    except Exception:  # noqa: BLE001
+    except robot.BrowserNotFound:
         return False
 
 
-needs_chromium = pytest.mark.skipif(not _chromium_ready(), reason="Chromium for Playwright is not installed")
+needs_chromium = pytest.mark.skipif(not _browser_ready(), reason="No Chromium-family browser is installed")
 
 LOGIN_PAGE = """<!doctype html><title>Admin login</title>
 <h1>Newsfield admin</h1>{error}
@@ -306,12 +306,49 @@ NEW_POST_PAGE = """<!doctype html><title>Add news</title>
 }});</script>"""
 
 
+# A busier admin panel: the editor lives in a frame, the photo goes through a styled button that
+# opens a file window, Publish is greyed out while the photo "uploads", asks "are you sure?", saves
+# in the background and stays on the same address.
+FANCY_PAGE = """<!doctype html><title>Compose</title>
+<header style="position:sticky;top:0;height:50px;background:#eee">Admin</header>
+<div id="msg"></div>
+<form id="f">
+  <p><input name="title" id="t" placeholder="Post title"></p>
+  <iframe id="ed" src="/admin/editor" style="width:500px;height:150px"></iframe>
+  <p><select name="cat" id="cat"><option value="">--</option><option value="3">Bangladesh</option>
+     <option value="4">{category}</option></select>
+     <input name="tags" id="tags" placeholder="Tags"></p>
+  <input type="file" name="photo" id="file" style="display:none">
+  <button type="button" id="up">Upload photo…</button>
+  <button type="submit" id="save">Publish</button>
+</form>
+<script>
+const f = document.getElementById('f'), file = document.getElementById('file'), save = document.getElementById('save');
+document.getElementById('up').addEventListener('click', () => file.click());
+file.addEventListener('change', () => {{ save.disabled = true; setTimeout(() => {{ save.disabled = false; }}, 900); }});
+f.addEventListener('submit', async (e) => {{
+  e.preventDefault();
+  if (!confirm('Publish this post?')) return;
+  const data = new FormData(f);
+  data.set('body', document.getElementById('ed').contentDocument.body.innerHTML);
+  const r = await fetch('/admin/fancy', {{method: 'POST', body: data}});
+  const text = await r.text();
+  document.getElementById('msg').innerHTML = r.ok
+    ? '<p class="ok">Saved</p><a href="/news/' + text + '">View post</a>'
+    : '<div class="alert-danger">' + text + '</div>';
+}});
+</script>"""
+EDITOR_FRAME = """<!doctype html><title>Editor</title><body contenteditable="true"><p><br></p></body>"""
+
+
 class AdminSite:
     """A tiny custom admin panel: cookie login, an 'Add news' form with a rich-text box."""
 
     def __init__(self):
         self.posts: list[dict] = []
         self.sessions: set[str] = set()
+        self.category = "Business"
+        self.reject: str | None = None
         site = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -336,8 +373,12 @@ class AdminSite:
                 path = urlsplit(self.path).path
                 if path == "/admin/login":
                     return self._send(200, LOGIN_PAGE.format(error=""))
-                if path in ("/admin", "/admin/news/new") and not self._signed_in():
+                if path in ("/admin", "/admin/news/new", "/admin/fancy/new") and not self._signed_in():
                     return self._send(303, headers={"Location": "/admin/login"})
+                if path == "/admin/fancy/new":
+                    return self._send(200, FANCY_PAGE.format(category=site.category))
+                if path == "/admin/editor":
+                    return self._send(200, EDITOR_FRAME)
                 if path == "/admin":
                     return self._send(200, '<h1>Dashboard</h1><a href="/admin/news/new">Add news</a>')
                 if path == "/admin/news/new":
@@ -360,6 +401,20 @@ class AdminSite:
                         site.sessions.add(sid)
                         return self._send(303, headers={"Location": "/admin", "Set-Cookie": f"sid={sid}; Path=/"})
                     return self._send(200, LOGIN_PAGE.format(error='<p class="error">Wrong email or password</p>'))
+                if path == "/admin/fancy":
+                    if not self._signed_in():
+                        return self._send(401, "Please sign in")
+                    if site.reject:
+                        return self._send(422, site.reject)
+                    msg = BytesParser(policy=email_policy).parsebytes(
+                        f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode() + raw)
+                    fields = {}
+                    for part in msg.iter_parts():
+                        name = part.get_param("name", header="content-disposition")
+                        data = part.get_payload(decode=True) or b""
+                        fields[name] = data.decode("utf-8") if part.get_filename() is None else len(data)
+                    site.posts.append(fields)
+                    return self._send(200, str(len(site.posts)))
                 if path == "/admin/news":
                     if not self._signed_in():
                         return self._send(303, headers={"Location": "/admin/login"})
@@ -395,27 +450,31 @@ def teach_like_a_person(site: AdminSite):
     """What an administrator does in the setup window, step by step."""
 
     def bar(page, label):
-        page.locator("#__nw_teach_bar").get_by_role("button", name=label).click()
+        assert page.wait_for(lambda: page.find("#__nw_teach_bar") is not None, 10)
+        assert page.wait_for(lambda: page.find_button(label, root=page.find("#__nw_teach_bar")) is not None, 10), label
+        page.find_button(label, root=page.find("#__nw_teach_bar")).click()
 
     def act(page, key):
-        page.wait_for_timeout(300)
+        time.sleep(0.6)  # a person reads the instruction first
         if key == "page":
             page.goto(f"{site.base}/admin")
-            page.get_by_role("link", name="Add news").click()
-            page.wait_for_load_state()
+            before = page.url
+            page.find_link("Add news").click()
+            page.wait_for_url_change(before, 10)
+            page.settle(10)
             bar(page, "This is the page")
         elif key == "title":
-            page.click("#headline")
+            page.find("#headline").click()
         elif key == "body":
-            page.click("#editor p")  # a paragraph inside the editor: the whole editor is meant
+            page.find("#editor p").click()  # a paragraph inside the editor: the whole editor is meant
         elif key == "image":
-            page.click("label[for=photo]")  # the styled label: the file input behind it is meant
+            page.find("label[for=photo]").click()  # the styled label: the file input behind it is meant
         elif key == "excerpt":
-            page.click("input[name=summary]")
+            page.find("input[name=summary]").click()
         elif key in ("category", "tags"):
             bar(page, "Skip")
         elif key == "submit":
-            page.get_by_role("button", name="Publish news").click()  # recorded, not pressed
+            page.find_button("Publish news").click()  # recorded, not pressed
 
     return act
 
@@ -498,3 +557,141 @@ def test_wrong_admin_password_is_reported_by_the_robot(client, admin_site, monke
     test = admin.post(f"/publishing/destinations/{d['id']}/test").json()
     assert test["ok"] is False and "did not accept the admin email and password" in test["message"]
     assert "Wrong email or password" in test["message"]
+
+
+def teach_the_fancy_form(site: AdminSite):
+    def bar(page, label):
+        assert page.wait_for(lambda: page.find_button(label, root=page.find("#__nw_teach_bar")) is not None, 10), label
+        page.find_button(label, root=page.find("#__nw_teach_bar")).click()
+
+    def act(page, key):
+        time.sleep(0.6)
+        if key == "page":
+            page.goto(f"{site.base}/admin/fancy/new")
+            page.settle(10)
+            bar(page, "This is the page")
+        elif key == "title":
+            page.find("#t").click()
+            page.find("#t").click()          # a nervous double-click must not answer the next question
+        elif key == "body":
+            page.find("#ed").content_frame().body().click()   # inside the editor's own frame
+        elif key == "image":
+            page.find("#up").click()
+        elif key == "excerpt":
+            bar(page, "Skip")
+        elif key == "category":
+            page.find("#cat").click()
+        elif key == "tags":
+            page.find("#tags").click()
+        elif key == "submit":
+            page.find("#save").click()
+
+    return act
+
+
+def add_website(admin, site, password="s3cret-pass") -> dict:
+    r = admin.post("/publishing/destinations", json={"name": "Newsfield", "kind": "website",
+                                                     "base_url": f"{site.base}/admin/login",
+                                                     "username": "admin@newsfield.test", "secret": password})
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+@needs_chromium
+def test_editor_in_a_frame_upload_button_lists_and_background_saving(client, admin_site, monkeypatch):
+    admin = setup_admin(client)
+    cat = admin.post("/categories", json={"name": "Economy desk"})
+    assert cat.status_code == 201, cat.text
+    admin_site.category = "Economy desk"
+    d = add_website(admin, admin_site)
+
+    monkeypatch.setattr(website, "start_teaching",
+                        partial(website.start_teaching, headless=True, driver=teach_the_fancy_form(admin_site)))
+    admin.post(f"/publishing/destinations/{d['id']}/teach")
+    st = wait_for_teaching(admin, d["id"])
+    assert st["state"] == "done", st
+    assert admin_site.posts == []
+    d = next(x for x in admin.get("/publishing/destinations").json() if x["id"] == d["id"])
+    assert d["website"]["fields"] == ["body", "category", "image", "tags", "title"]
+    assert d["website"]["new_post_url"].endswith("/admin/fancy/new")
+
+    buf = io.BytesIO()
+    Image.new("RGB", (1080, 1080), (20, 60, 140)).save(buf, "JPEG")
+    img = admin.post("/images/upload", files={"file": ("photo.jpg", buf.getvalue(), "image/jpeg")},
+                     data={"license_code": "cc0", "title": "Factory"}).json()
+    admin.post(f"/images/{img['id']}/approve")
+    art = approved_article(admin, featured_image_id=img["id"], category_id=cat.json()["id"],
+                           tags=["garments", "ঢাকা"])
+    job = publish_in_background(admin, art["id"], d["id"])
+    assert job["status"] == "succeeded", job["last_error"]
+    post = admin_site.posts[0]
+    assert post["title"] == "Garment factories reopen"
+    assert "<p>" in post["body"] and len(post["body"]) > 200       # pasted into the editor's frame
+    assert post["cat"] == "4"                                        # the list entry named like the category
+    assert set(post["tags"].split(", ")) == {"garments", "ঢাকা"}
+    assert post["photo"] > 1000                                      # through the button's file window
+    assert job["remote_url"].endswith("/news/1")                     # the link shown after saving in the background
+
+    # The website refuses a post: its own words are passed on, with a screenshot, and it is not retried.
+    admin_site.reject = "A post with this title already exists"
+    art2 = approved_article(admin)
+    job = publish_in_background(admin, art2["id"], d["id"])
+    assert job["status"] != "succeeded"
+    assert "did not accept the post: A post with this title already exists" in job["last_error"]
+    assert "screenshot: storage/logs/robot/" in job["last_error"]
+    assert len(admin_site.posts) == 1
+    shots = list((get_settings().logs_dir / "robot").glob("*.png"))
+    assert shots and shots[0].read_bytes()[:4] == b"\x89PNG"
+
+
+@needs_chromium
+def test_closing_the_setup_window_cancels_teaching(client, admin_site, monkeypatch):
+    admin = setup_admin(client)
+    d = add_website(admin, admin_site)
+
+    def close_the_window(page, key):
+        time.sleep(0.3)
+        page.browser._conn.send("Target.closeTarget", {"targetId": page.target_id})
+
+    monkeypatch.setattr(website, "start_teaching",
+                        partial(website.start_teaching, headless=True, driver=close_the_window))
+    admin.post(f"/publishing/destinations/{d['id']}/teach")
+    st = wait_for_teaching(admin, d["id"])
+    assert st["state"] == "cancelled" and st["error"] is None, st
+    assert "window was closed" in st["message"]
+
+    # Cancel from NEWSWIRE while the window waits for the person.
+    monkeypatch.setattr(website, "start_teaching",
+                        partial(website.start_teaching, headless=True, driver=lambda page, key: None))
+    assert admin.post(f"/publishing/destinations/{d['id']}/teach").json()["state"] in ("starting", "running")
+    deadline = time.time() + 30
+    while admin.get(f"/publishing/destinations/{d['id']}/teach").json()["mode"] != "page":
+        assert time.time() < deadline
+        time.sleep(0.2)
+    admin.delete(f"/publishing/destinations/{d['id']}/teach")
+    st = wait_for_teaching(admin, d["id"])
+    assert st["state"] == "cancelled" and "cancelled" in st["message"], st
+    d = next(x for x in admin.get("/publishing/destinations").json() if x["id"] == d["id"])
+    assert d["website"]["taught"] is False
+
+
+@needs_chromium
+def test_no_browser_on_the_computer_is_explained(client, admin_site, monkeypatch):
+    admin = setup_admin(client)
+    d = add_website(admin, admin_site)
+    monkeypatch.setattr("app.robot.chrome.browser_candidates", lambda headless=True: [])
+    test = admin.post(f"/publishing/destinations/{d['id']}/test").json()
+    assert test["ok"] is False and "Install Google Chrome" in test["message"], test
+    admin.post(f"/publishing/destinations/{d['id']}/teach")
+    st = wait_for_teaching(admin, d["id"])
+    assert st["state"] == "failed" and "Install Google Chrome" in st["error"], st
+
+
+@needs_chromium
+def test_website_that_is_down_is_reported_and_retried(client, admin_site, monkeypatch):
+    admin = setup_admin(client)
+    d = add_website(admin, admin_site)
+    admin_site.close()
+    admin_site.server.server_close()   # nothing listens on the port any more
+    test = admin.post(f"/publishing/destinations/{d['id']}/test").json()
+    assert test["ok"] is False and "could not be opened" in test["message"] and "refused" in test["message"], test

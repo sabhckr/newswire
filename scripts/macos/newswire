@@ -64,8 +64,10 @@ install_packages() {
   [ -x "$ROOT/backend/.venv/bin/python" ] || "$(python_bin)" -m venv "$ROOT/backend/.venv"
   "$ROOT/backend/.venv/bin/pip" install -q --upgrade pip
   "$ROOT/backend/.venv/bin/pip" install -q -r "$ROOT/backend/requirements.lock"
-  say "Installing the robot browser (publishing to websites through their admin panel)"
-  "$ROOT/backend/.venv/bin/python" -m playwright install chromium >/dev/null
+  say "Checking the robot browser (publishing to websites through their admin panel)"
+  # NEWSWIRE's own engine drives the Chrome, Edge, Brave or Chromium already on this Mac; nothing
+  # is downloaded. Without one, everything else still works and this line says what to install.
+  (cd "$ROOT/backend" && .venv/bin/python -m app.robot) || true
   say "Installing Node packages"
   (cd "$ROOT/frontend" && npm ci --no-audit --no-fund --loglevel=error)
 }
