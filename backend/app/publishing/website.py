@@ -48,7 +48,7 @@ from app.models import Article, PublishingDestination
 from app.publishing.connectors import PublishError, RemoteResult, WordPressConnector
 from app.publishing.social import load_secrets, save_secrets, set_config
 from app.robot import (BindingCall, Browser, BrowserClosed, BrowserLaunchError, BrowserNotFound, Element, Page,
-                       RobotError, RobotTimeout)
+                       RobotError, RobotTimeout, Stale)
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ def wordpress_setup(client: httpx.Client, wp_base: str, login: str, password: st
     if not logged_in:
         blocked = _looks_blocked(resp.text)
         if blocked == "captcha":
-            raise SetupError("The WordPress login has a captcha, so NEWSWIRE cannot sign in by itself. Create an "
+            raise SetupError("The WordPress login has a captcha, so Samyabadi cannot sign in by itself. Create an "
                              "application password in WordPress (Users → Profile) and add the site as a WordPress "
                              "destination instead.")
         if blocked == "two-step":
@@ -160,7 +160,7 @@ def wordpress_setup(client: httpx.Client, wp_base: str, login: str, password: st
                          "Editor or Author account.")
     ap_resp = safe_request(client, "POST", wp_base + "/wp-json/wp/v2/users/me/application-passwords",
                            headers={**api, "Content-Type": "application/json"},
-                           content=json.dumps({"name": f"NEWSWIRE {time.strftime('%Y-%m-%d')}"}).encode())
+                           content=json.dumps({"name": f"Samyabadi {time.strftime('%Y-%m-%d')}"}).encode())
     ap = _json_or_none(ap_resp) or {}
     if ap_resp.status_code >= 400 or not isinstance(ap, dict) or not ap.get("password"):
         code = ap.get("code") if isinstance(ap, dict) else None
@@ -195,7 +195,7 @@ class WordPressLoginConnector(WordPressConnector):
             try:
                 info = wordpress_setup(client, self.wp_base, self.dest.username or "", sec["password"])
             except (SetupError, httpx.HTTPError) as setup_exc:
-                raise PublishError(f"WordPress rejected NEWSWIRE's access and signing in again failed: {setup_exc}",
+                raise PublishError(f"WordPress rejected Samyabadi's access and signing in again failed: {setup_exc}",
                                    retryable=False) from setup_exc
             save_secrets(self.dest, {**sec, "app_password": info["app_password"]})
             set_config(self.dest, wp_user=info["username"])
@@ -221,7 +221,7 @@ def setup_website(dest: PublishingDestination, password: str, client: httpx.Clie
     set_config(dest, platform="custom", wp_base=None, wp_user=None)
     if (dest.config or {}).get("recipe"):
         return "Login saved."
-    return "Custom admin panel. Next: click Teach and show NEWSWIRE where to type the post."
+    return "Custom admin panel. Next: click Teach and show Samyabadi where to type the post."
 
 
 def website_problem(dest: PublishingDestination, mode: str) -> str | None:
@@ -229,9 +229,9 @@ def website_problem(dest: PublishingDestination, mode: str) -> str | None:
     if cfg.get("platform") == "wordpress":
         return None
     if not (cfg.get("recipe") or {}).get("new_post_url"):
-        return "Show NEWSWIRE the website's post form first: Publishing → Destinations → Teach."
+        return "Show Samyabadi the website's post form first: Publishing → Destinations → Teach."
     if mode == "draft":
-        return "NEWSWIRE fills in this website's own post form, so it can only publish (no drafts)."
+        return "Samyabadi fills in this website's own post form, so it can only publish (no drafts)."
     return None
 
 
@@ -273,7 +273,7 @@ CAPTCHA = ("iframe[src*=recaptcha]", "iframe[src*=hcaptcha]", "iframe[src*=turns
            ".cf-turnstile")
 TWO_STEP = ("input[autocomplete=one-time-code]", "input[name*=otp i]", "input[name*=2fa i]",
             "input[name*=token i][inputmode=numeric]")
-SCREEN_NEEDED = ("Teaching needs NEWSWIRE running on a computer with a screen (it opens a browser window). Run it "
+SCREEN_NEEDED = ("Teaching needs Samyabadi running on a computer with a screen (it opens a browser window). Run it "
                  "on your Mac or PC for this one-time step.")
 
 
@@ -299,6 +299,20 @@ def _quiet(fn: Callable[[], Any], default: Any = None) -> Any:
         raise
     except RobotError:
         return default
+
+
+def _steady(action: Callable[[], Any], attempts: int = 5) -> Any:
+    """Find something and act on it, as one step. Pages redraw themselves: when the element is
+    replaced between finding it and using it, find it again and repeat. `action` must do its own
+    looking up, and is only repeated when nothing was done to the page yet."""
+    for attempt in range(attempts):
+        try:
+            return action()
+        except Stale:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.3)
+    return None
 
 
 def _seen(page: Page, *selectors: str) -> bool:
@@ -330,31 +344,41 @@ def login(page: Page, login_url: str, username: str, password: str) -> None:
     """Sign in on the login page. Raises PublishError with a plain explanation when it cannot."""
     page.goto(login_url, timeout=NAV_SECONDS)
     page.settle(8)
-    pw = page.find(PASSWORD_FIELD)
-    if pw is None:
+    def type_in() -> bool:
+        pw = page.find(PASSWORD_FIELD)
+        if pw is None:
+            return False
+        # A username/email box shown on the same form as the password (not a search box elsewhere).
+        user = page.find(*USER_FIELDS, root=pw.closest("form"))
+        if user is not None:
+            user.fill(username)
+        pw.fill(password)
+        return True
+
+    def send() -> None:
+        pw = page.find(PASSWORD_FIELD)
+        if pw is None:
+            return  # the page already moved on
+        submit = page.find(*SUBMIT_FIELDS, root=pw.closest("form"))
+        if submit is not None:
+            submit.click()
+        else:
+            pw.press("Enter")
+
+    if not _steady(type_in):
         return  # the stored session is still signed in
-    form = pw.closest("form")
-    # A username/email box shown on the same form as the password (not a search box elsewhere).
-    user = page.find(*USER_FIELDS, root=form)
-    if user is not None:
-        user.fill(username)
-    pw.fill(password)
-    submit = page.find(*SUBMIT_FIELDS, root=form)
-    if submit is not None:
-        submit.click()
-    else:
-        pw.press("Enter")
+    _steady(send)
     page.settle(10, quiet=1.0)
     if needs_login(page):
         if _blocked_reason(page) == "captcha":
-            raise PublishError("The website's login asks for a captcha. Click Teach in NEWSWIRE and complete it in "
-                               "the window once; NEWSWIRE then keeps that session.", retryable=False)
+            raise PublishError("The website's login asks for a captcha. Click Teach in Samyabadi and complete it in "
+                               "the window once; Samyabadi then keeps that session.", retryable=False)
         detail = _error_text(page, 200)
         raise PublishError("The website did not accept the admin email and password"
                            + (f": {detail}" if detail else ". Check them under Edit."), retryable=False)
     if _blocked_reason(page) == "two-step":
-        raise PublishError("The website asks for a two-step code. Click Teach in NEWSWIRE and enter the code in the "
-                           "window once; NEWSWIRE then keeps that session.", retryable=False)
+        raise PublishError("The website asks for a two-step code. Click Teach in Samyabadi and enter the code in the "
+                           "window once; Samyabadi then keeps that session.", retryable=False)
 
 
 def _resolve(page: Page, field: dict) -> Element | None:
@@ -495,7 +519,7 @@ class RobotConnector:
         lock = _lock(self.dest.id)
         if not lock.acquire(timeout=10 * 60):
             raise PublishError("The robot browser is busy with this website (teaching or another post); "
-                               "NEWSWIRE will try again.")
+                               "Samyabadi will try again.")
         try:
             browser = open_browser(headless=self.headless, storage_state=load_secrets(self.dest).get("storage_state"))
             try:
@@ -505,7 +529,7 @@ class RobotConnector:
             finally:
                 browser.close()
         except BrowserClosed as exc:
-            raise PublishError("The robot browser closed before it had finished; NEWSWIRE will try again.") from exc
+            raise PublishError("The robot browser closed before it had finished; Samyabadi will try again.") from exc
         except RobotError as exc:
             raise PublishError(f"The robot browser could not finish: {exc}") from exc
         finally:
@@ -514,7 +538,7 @@ class RobotConnector:
     def _open_form(self, page: Page) -> None:
         url = self.recipe.get("new_post_url")
         if not url:
-            raise PublishError("Show NEWSWIRE the website's post form first: Publishing → Destinations → Teach.",
+            raise PublishError("Show Samyabadi the website's post form first: Publishing → Destinations → Teach.",
                                retryable=False)
         page.goto(url, timeout=NAV_SECONDS)
         page.settle(SETTLE_SECONDS)
@@ -527,14 +551,14 @@ class RobotConnector:
 
     def publish(self, article, publication, mode, client, options=None) -> RemoteResult:
         if mode == "draft":
-            raise PublishError("NEWSWIRE fills in this website's own post form, so it can only publish (no drafts).",
+            raise PublishError("Samyabadi fills in this website's own post form, so it can only publish (no drafts).",
                                retryable=False)
         if publication and publication.remote_status == "published":
-            raise PublishError("This article is already on the website. NEWSWIRE can add new posts there but not "
+            raise PublishError("This article is already on the website. Samyabadi can add new posts there but not "
                                "change existing ones: edit the post in the website's admin panel.", retryable=False)
         fields = self.recipe.get("fields") or {}
         if not fields.get("title") or not fields.get("body") or not self.recipe.get("submit"):
-            raise PublishError("NEWSWIRE has not been shown the title box, text box and Publish button yet. Click "
+            raise PublishError("Samyabadi has not been shown the title box, text box and Publish button yet. Click "
                                "Teach.", retryable=False)
         html_body = render_article_html(article, include_header=False, include_featured=False)
         img = article.featured_image
@@ -554,37 +578,39 @@ class RobotConnector:
 
     def _fill_and_submit(self, page: Page, article, fields: dict, html_body: str, img_path: Path | None) -> RemoteResult:
         self._open_form(page)
-        title = _resolve(page, fields["title"])
-        if title is None:
-            raise PublishError("The title box was not found on the post form. The site may have changed: "
-                               "click Teach again.", retryable=False)
-        _type_into(title, article.headline)
-        _fill_body(page, fields["body"], html_body, self.body_format)
+
+        def need(field: dict, missing: str) -> Element:
+            el = _resolve(page, field)
+            if el is None:
+                raise PublishError(missing, retryable=False)
+            return el
+
+        def optional(field: dict, value: str) -> None:
+            el = _resolve(page, field)
+            if el is not None:
+                _type_into(el, value)
+
+        _steady(lambda: _type_into(need(fields["title"], "The title box was not found on the post form. The site may "
+                                                         "have changed: click Teach again."), article.headline))
+        _steady(lambda: _fill_body(page, fields["body"], html_body, self.body_format))
         if fields.get("excerpt") and (article.excerpt or article.seo_description):
-            el = _resolve(page, fields["excerpt"])
-            if el is not None:
-                _type_into(el, article.excerpt or article.seo_description or "")
+            _steady(lambda: optional(fields["excerpt"], article.excerpt or article.seo_description or ""))
         if fields.get("tags") and article.tags:
-            el = _resolve(page, fields["tags"])
-            if el is not None:
-                _type_into(el, ", ".join(t.name for t in article.tags))
+            _steady(lambda: optional(fields["tags"], ", ".join(t.name for t in article.tags)))
         if fields.get("category") and article.category:
-            el = _resolve(page, fields["category"])
-            if el is not None:
-                _type_into(el, article.category.name)
+            _steady(lambda: optional(fields["category"], article.category.name))
         if fields.get("image") and img_path is not None and img_path.is_file():
-            _attach_image(page, fields["image"], img_path)
-        submit = _resolve(page, self.recipe["submit"])
-        if submit is None:
-            raise PublishError("The Publish button was not found on the post form. Click Teach again.",
-                               retryable=False)
+            _steady(lambda: _attach_image(page, fields["image"], img_path))
         before = page.url
-        submit.click(timeout=30)  # a button that is greyed out while the photo uploads is waited for
+        # A button that is greyed out while the photo uploads is waited for. (A click that finds its
+        # button replaced has not pressed anything yet, so trying again cannot publish twice.)
+        _steady(lambda: need(self.recipe["submit"], "The Publish button was not found on the post form. Click Teach "
+                                                    "again.").click(timeout=30))
         # A classic form loads a new page; a single-page admin panel saves in the background and
         # stays on one address. Either way: wait until the page has finished and gone quiet.
         page.settle(SETTLE_SECONDS, quiet=1.5)
         if needs_login(page):
-            raise PublishError("The website signed NEWSWIRE out while posting; it will try again.")
+            raise PublishError("The website signed Samyabadi out while posting; it will try again.")
         if page.url == before:
             detail = _error_text(page)
             if detail:
@@ -604,7 +630,7 @@ class RobotConnector:
         return None
 
     def unpublish(self, article, publication, client) -> RemoteResult:
-        raise PublishError("NEWSWIRE can only add posts to this website. Delete or hide the post in the website's "
+        raise PublishError("Samyabadi can only add posts to this website. Delete or hide the post in the website's "
                            "admin panel.", retryable=False)
 
     def status(self, article, publication, client) -> RemoteResult:
@@ -615,7 +641,7 @@ class RobotConnector:
         with self._browser() as page:
             if not self.recipe.get("new_post_url"):
                 login(page, self.login_url, self.username, self.password)
-                return "Signed in to the admin panel. Next: click Teach and show NEWSWIRE the post form."
+                return "Signed in to the admin panel. Next: click Teach and show Samyabadi the post form."
             self._open_form(page)
             fields = self.recipe.get("fields") or {}
             found = [k for k in ("title", "body", "image", "excerpt", "tags", "category")
@@ -643,7 +669,7 @@ TEACH_STEPS = [
     {"key": "category", "mode": "pick", "optional": True, "message": "Click the CATEGORY box or list. None? Press Skip."},
     {"key": "tags", "mode": "pick", "optional": True, "message": "Click the TAGS box. None? Press Skip."},
     {"key": "submit", "mode": "pick",
-     "message": "Click the PUBLISH (or Save / Submit) button. Don't worry: NEWSWIRE will not press it now."},
+     "message": "Click the PUBLISH (or Save / Submit) button. Don't worry: Samyabadi will not press it now."},
 ]
 WINDOW_CLOSED = "The setup window was closed, so teaching stopped; nothing was changed. Click Teach to start again."
 
@@ -740,7 +766,7 @@ class TeachSession:
             self.browser = open_browser(headless=self.headless, storage_state=self.storage_state,
                                         scripts=[(OVERLAY_JS, True)], bindings={"__nwTeach": (self._from_overlay, True)})
             self._teach(self.browser)
-            outcome = {"state": "done", "mode": "idle", "message": "Done. NEWSWIRE now knows this website's post form."}
+            outcome = {"state": "done", "mode": "idle", "message": "Done. Samyabadi now knows this website's post form."}
         except _Cancelled:
             outcome = cancelled
         except BrowserClosed:
@@ -800,7 +826,7 @@ class TeachSession:
                 selector = _quiet(lambda: owner.call(CSS_PATH_JS), "") if owner is not None else ""
                 field = {"selector": selector, "tag": "iframe", "frame": True}
             if not field.get("selector"):
-                raise SetupError("NEWSWIRE could not identify what you clicked. Click Teach and try again.")
+                raise SetupError("Samyabadi could not identify what you clicked. Click Teach and try again.")
             if step["key"] == "submit":
                 recipe["submit"] = field
             else:

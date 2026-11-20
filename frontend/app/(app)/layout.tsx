@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (me.error && !unauthorized) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
-        <p className="text-sm font-medium">NEWSWIRE cannot reach its API</p>
+        <p className="text-sm font-medium">Samyabadi cannot reach its API</p>
         <p className="max-w-md text-sm text-muted">{errorMessage(me.error)}</p>
         <Button variant="outline" onClick={() => me.refetch()}>
           Try again
@@ -48,7 +48,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <Spinner label="Loading NEWSWIRE" />
+      <Spinner label="Loading Samyabadi" />
     </div>
   );
 }

@@ -170,7 +170,7 @@ def export_sources(db: Session = Depends(get_db), _: CurrentUser = Depends(requi
 
 @router.post("/sources/import")
 async def import_sources(request: Request, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.SOURCES_WRITE))):
-    """Import sources from a NEWSWIRE JSON export or an OPML subscription list."""
+    """Import sources from a Samyabadi JSON export or an OPML subscription list."""
     raw = await request.body()
     if len(raw) > 5_000_000:
         raise AppError(413, "payload_too_large", "Import file is larger than 5 MB")

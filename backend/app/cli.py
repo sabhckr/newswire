@@ -229,7 +229,7 @@ def cmd_robot_check(_args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m app.cli", description="NEWSWIRE administration")
+    p = argparse.ArgumentParser(prog="python -m app.cli", description="Samyabadi administration")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("migrate").set_defaults(fn=cmd_migrate)
     sub.add_parser("bootstrap").set_defaults(fn=cmd_bootstrap)

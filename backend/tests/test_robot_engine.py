@@ -71,6 +71,17 @@ PAGES = {
 <button id="late" disabled onclick="document.title='late pressed'" style="position:relative;z-index:5">Late</button>
 <button id="never" disabled style="position:relative;z-index:5">Never</button>
 <script>setTimeout(() => { document.getElementById('late').disabled = false; }, 600);</script>""",
+    "/moving": """<!doctype html><title>Moving</title>
+<style>
+  @keyframes arrive { from { transform: translateX(500px); } to { transform: none; } }
+  @keyframes restless { from { transform: translateX(0); } to { transform: translateX(6px); } }
+  #panel { position: fixed; left: 40px; top: 80px; width: 260px; padding: 20px; background: #eee; animation: arrive 700ms linear; }
+  #jitter { position: fixed; left: 40px; top: 300px; animation: restless 300ms linear infinite alternate; }
+</style>
+<div id="backdrop" style="position:fixed;inset:0" onclick="document.title='missed'"></div>
+<div id="panel"><button id="arriving" onclick="event.stopPropagation();
+  document.title += document.getElementById('panel').getAnimations().length ? ' pressed while moving' : ' pressed at rest'">Save</button></div>
+<button id="jitter" onclick="event.stopPropagation(); document.title += ' jitter'">Never still</button>""",
     "/far": """<!doctype html><title>Far</title><div style="height:4000px">tall</div>
 <header style="position:fixed;top:0;left:0;right:0;height:60px;background:#ccc">sticky</header>
 <button id="deep" onclick="document.title='deep pressed'">Deep</button><div style="height:2000px"></div>""",
@@ -317,6 +328,16 @@ def test_click_waits_for_a_disabled_button_and_presses_covered_ones(page, site):
     assert title(page) == "under pressed"
     with pytest.raises(RobotError, match="disabled"):
         page.find("#never").click(timeout=0.5)
+
+
+def test_click_waits_for_something_that_is_still_sliding_into_place(page, site):
+    """A dialog that is still animating: a click aimed at where the button was lands on the
+    backdrop (and, in a real app, closes the dialog)."""
+    page.goto(f"{site.base}/moving")
+    page.find("#arriving").click()             # mid-slide when found
+    assert title(page) == "Moving pressed at rest"
+    page.find("#jitter").click(timeout=0.6)    # never comes to rest: clicked where it is, not skipped
+    assert title(page) == "Moving pressed at rest jitter"
 
 
 def test_click_scrolls_to_far_away_elements(page, site):

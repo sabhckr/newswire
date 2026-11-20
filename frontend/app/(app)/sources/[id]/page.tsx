@@ -171,7 +171,7 @@ export default function SourceDetailPage() {
               · <Time value={s.last_error_at} />
             </span>
           ) : null}
-          . NEWSWIRE backs off exponentially between retries; the next attempt is <Time value={s.next_fetch_at} />.
+          . Samyabadi backs off exponentially between retries; the next attempt is <Time value={s.next_fetch_at} />.
         </InlineAlert>
       ) : null}
       {!s.is_active ? (

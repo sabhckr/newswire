@@ -221,7 +221,7 @@ export default function SystemPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="System status"
-        description={s ? `NEWSWIRE ${s.version} · ${s.environment} · Python ${s.python}` : "Worker, scheduler, database, storage and backups"}
+        description={s ? `Samyabadi ${s.version} · ${s.environment} · Python ${s.python}` : "Worker, scheduler, database, storage and backups"}
         actions={
           can(PERMS.sourcesWrite) ? (
             <Button variant="primary" loading={run.isPending} onClick={() => run.mutate()} title="Fetch every source that is due now">
@@ -263,7 +263,6 @@ export default function SystemPage() {
           hint={s ? `${formatNumber(fetchErrors)} failed · ${s.sources.failing} failing sources` : undefined}
           tone={fetchErrors ? "warning" : undefined}
           icon={RefreshCw}
-          href="/activity?tab=fetches"
         />
         <Stat
           label="Disk free"

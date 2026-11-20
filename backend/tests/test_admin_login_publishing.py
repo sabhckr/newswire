@@ -446,13 +446,27 @@ def admin_site(monkeypatch):
     site.close()
 
 
+def press_in_bar(page, label):
+    """Press a button on the setup bar. The bar belongs to the page being taught, which may be
+    redrawing: a press that finds its button gone is simply made again, as a person would."""
+    from app.robot import Stale
+
+    for attempt in range(5):
+        assert page.wait_for(lambda: page.find("#__nw_teach_bar") is not None
+                             and page.find_button(label, root=page.find("#__nw_teach_bar")) is not None, 10), label
+        try:
+            page.find_button(label, root=page.find("#__nw_teach_bar")).click()
+            return
+        except Stale:
+            if attempt == 4:
+                raise
+
+
 def teach_like_a_person(site: AdminSite):
     """What an administrator does in the setup window, step by step."""
 
     def bar(page, label):
-        assert page.wait_for(lambda: page.find("#__nw_teach_bar") is not None, 10)
-        assert page.wait_for(lambda: page.find_button(label, root=page.find("#__nw_teach_bar")) is not None, 10), label
-        page.find_button(label, root=page.find("#__nw_teach_bar")).click()
+        press_in_bar(page, label)
 
     def act(page, key):
         time.sleep(0.6)  # a person reads the instruction first
@@ -462,6 +476,16 @@ def teach_like_a_person(site: AdminSite):
             page.find_link("Add news").click()
             page.wait_for_url_change(before, 10)
             page.settle(10)
+            # The bar covers the top of the page: it can be sent to the bottom edge, and stays there.
+            top = "function() { return Math.round(document.getElementById('__nw_teach_bar').getBoundingClientRect().top); }"
+            assert page.evaluate(top) == 0
+            bar(page, "Move bar down")
+            assert page.wait_for(lambda: page.evaluate(top) > 300, 5)
+            page.goto(f"{site.base}/admin/news/new")
+            page.settle(10)
+            assert page.wait_for(lambda: page.find("#__nw_teach_bar") is not None and page.evaluate(top) > 300, 10)
+            bar(page, "Move bar up")
+            assert page.wait_for(lambda: page.evaluate(top) == 0, 5)
             bar(page, "This is the page")
         elif key == "title":
             page.find("#headline").click()
@@ -561,8 +585,7 @@ def test_wrong_admin_password_is_reported_by_the_robot(client, admin_site, monke
 
 def teach_the_fancy_form(site: AdminSite):
     def bar(page, label):
-        assert page.wait_for(lambda: page.find_button(label, root=page.find("#__nw_teach_bar")) is not None, 10), label
-        page.find_button(label, root=page.find("#__nw_teach_bar")).click()
+        press_in_bar(page, label)
 
     def act(page, key):
         time.sleep(0.6)

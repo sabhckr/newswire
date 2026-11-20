@@ -35,10 +35,10 @@ def self_check(executable: str | None = None) -> dict:
             out["version"] = browser.version
             page = browser.page
             page.goto("data:text/html,<title>robot</title><input id=q><button onclick=\"document.title=q.value\">go</button>")
-            page.find("#q").fill("NEWSWIRE ঢাকা")
+            page.find("#q").fill("Samyabadi ঢাকা")
             page.find_button("go").click()
             title = page.evaluate("function() { return document.title; }")
-            if title != "NEWSWIRE ঢাকা":
+            if title != "Samyabadi ঢাকা":
                 raise RobotError(f"the test page answered {title!r}")
         out["ok"] = True
         out["message"] = f"The robot browser works: {out['version']} at {path}"

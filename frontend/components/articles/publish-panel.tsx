@@ -31,8 +31,7 @@ type UnpublishResponse = { job: JobOut; duplicate_request: boolean; article: Art
 
 const PUBLISHABLE = new Set(["approved", "scheduled", "published", "unpublished"]);
 const REMOVABLE = new Set(["published", "draft", "private", "processing"]);
-const WEBSITE_KINDS = new Set(["builtin", "wordpress", "webhook", "website"]);
-/** A website NEWSWIRE fills in through its admin panel (not WordPress): no drafts, no unpublish. */
+/** A website Samyabadi fills in through its admin panel (not WordPress): no drafts, no unpublish. */
 const isRobotSite = (d: DestinationOut | undefined) => d?.kind === "website" && d.website?.platform !== "wordpress";
 
 function defaultScheduleValue(): string {
@@ -52,7 +51,7 @@ function unavailable(d: DestinationOut, article: ArticleOut): string | null {
   if (isSocial(d.kind) && !d.connection?.connected) return "Not connected yet";
   if (d.kind === "youtube" && !article.video_id) return "Add a video to the article first";
   if (d.kind === "instagram" && !article.featured_image && !article.video_id) return "Instagram needs a photo: add a featured image first";
-  if (d.kind === "website" && d.website?.platform === "custom" && !d.website.taught) return "Show NEWSWIRE this website's post form first (Teach)";
+  if (d.kind === "website" && d.website?.platform === "custom" && !d.website.taught) return "Show Samyabadi this website's post form first (Teach)";
   return null;
 }
 
@@ -80,7 +79,7 @@ function reportResults(res: PublishManyResponse, mode: Mode) {
         { duration: 10_000 },
       );
     } else if (j.status === "pending") {
-      toast.warning(`${name} did not accept it yet; NEWSWIRE will retry. ${j.last_error ?? ""}`);
+      toast.warning(`${name} did not accept it yet; Samyabadi will retry. ${j.last_error ?? ""}`);
     }
   }
 }
@@ -99,6 +98,10 @@ export function PublishPanel({
   const qc = useQueryClient();
   const invalidate = useInvalidatePublishing();
   const canPublish = can(PERMS.articlesPublish);
+  // Someone who may approve articles does not have to press "Submit for review" and "Approve"
+  // first: the server approves and publishes in one request, or does neither. The checks below
+  // still have to pass.
+  const oneStep = can(PERMS.articlesApprove) && (article.status === "draft" || article.status === "in_review");
 
   const destinations = useQuery({
     queryKey: ["publishing-destinations"],
@@ -126,7 +129,7 @@ export function PublishPanel({
   const video = article.video ?? null;
   const reelProblems: string[] = video ? (video.reel_problems ?? []) : ["Add a vertical video (3–90 seconds) to post a Reel."];
   const selected = active.filter((d) => choice(d.id).on && !unavailable(d, article));
-  // Facebook, Instagram and admin-panel websites have no "draft" NEWSWIRE can save to.
+  // Facebook, Instagram and admin-panel websites have no "draft" Samyabadi can save to.
   const hasFacebook = selected.some((d) => META_KINDS.has(d.kind) || isRobotSite(d));
   const hasSocial = selected.some((d) => isSocial(d.kind));
   const badReel = selected.some((d) => META_KINDS.has(d.kind) && choice(d.id).format === "reel" && reelProblems.length > 0);
@@ -182,7 +185,7 @@ export function PublishPanel({
       if (res.duplicate_request) toast.info("This was already requested.");
       else if (res.job.status === "succeeded") toast.success(`Removed from ${p.destination_name}`);
       else if (res.job.status === "failed") toast.error(`${p.destination_name}: ${res.job.last_error ?? "failed"}`);
-      else toast.warning(`${p.destination_name} did not respond yet; NEWSWIRE will retry.`);
+      else toast.warning(`${p.destination_name} did not respond yet; Samyabadi will retry.`);
       invalidate();
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -197,7 +200,7 @@ export function PublishPanel({
     onError: (e) => toast.error(errorMessage(e)),
   });
 
-  const statusOk = PUBLISHABLE.has(article.status) || (mode === "draft" && article.status === "in_review");
+  const statusOk = PUBLISHABLE.has(article.status) || oneStep || (mode === "draft" && article.status === "in_review");
   const errors = (checks.data ?? []).filter((c) => c.level === "error");
   const scheduledIso = mode === "scheduled" ? fromLocalInput(when) : null;
   const reason = !canPublish
@@ -514,7 +517,7 @@ export function PublishPanel({
                   })}
                 </fieldset>
                 {mode === "scheduled" ? (
-                  <Field label="Publication time" htmlFor="pub-when" hint="Your local time. NEWSWIRE must be running then; it publishes within a minute of this time.">
+                  <Field label="Publication time" htmlFor="pub-when" hint="Your local time. Samyabadi must be running then; it publishes within a minute of this time.">
                     <Input id="pub-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
                   </Field>
                 ) : null}

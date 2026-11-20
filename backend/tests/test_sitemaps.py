@@ -59,6 +59,22 @@ def test_parse_news_sitemap():
     assert e.categories == ["বাংলাদেশ", "বন্যা"] and e.image_urls == [f"{SITE}/bangladesh/a1.jpg"]
 
 
+def test_a_headline_with_a_bare_ampersand_does_not_lose_the_sitemap():
+    """Seen on a live news sitemap: one unescaped "&" in a title made the whole file unreadable."""
+    good = news_sitemap(ITEMS)
+    title = ITEMS[0][1]
+    broken = good.replace(title, title + " PR & Media \x07&amp; R&D &#2453;", 1)
+    parsed = parse_sitemap(broken.encode())
+    assert len(parsed.entries) == len(ITEMS)
+    assert parsed.entries[0].title == title + " PR & Media & R&D ক"
+    assert [e.title for e in parsed.entries[1:]] == [t for _, t, *_ in ITEMS[1:]]
+    # Something that is really not XML is still reported as such.
+    with pytest.raises(FeedParseError, match="Malformed sitemap"):
+        parse_sitemap(good.replace("</urlset>", "").encode())
+    with pytest.raises(FeedParseError, match="Malformed sitemap"):
+        parse_sitemap(b"<urlset><url><loc>https://x.example/a</url></urlset>")
+
+
 def test_sitemap_with_dtd_is_refused():
     bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><urlset><url><loc>&a;</loc></url></urlset>'
     with pytest.raises(FeedParseError, match="DTD"):

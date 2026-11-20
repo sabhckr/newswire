@@ -2,8 +2,8 @@
  * The main newsroom flow, one step per test. Steps run in order in one worker and share the
  * IDs they create; if one fails, the rest are skipped.
  *
- *   source (fixture feed) → headline with live preview → verify a match → start article
- *   → edit and ⌘S → approve → publish to the built-in API → unpublish
+ *   source (fixture feed) → open a story in Live News → start an article from it
+ *   → edit and ⌘S → publish to the built-in API in one step → unpublish
  */
 import path from "node:path";
 
@@ -15,18 +15,17 @@ import { field, toast } from "./support";
 
 test.describe.configure({ mode: "serial" });
 
-const [keepers, lightkeepers, cycleLanes, museum] = feed.stories;
+const [keepers] = feed.stories;
 const FEED_TITLE = feed.title;
 const PUBLISHER = "Harbour Gazette";
-const HEADLINE = "Lighthouse keepers' pay dispute";
 const ARTICLE_HEADLINE = "Lighthouse keepers strike over frozen night-shift pay";
 const ARTICLE_TEXT =
   "Keepers at three lighthouses around Port Ellery stopped work this week. They say the night-shift " +
   "allowance has not changed in nine years, while the harbour authority says talks are continuing. " +
   "A second day of action is planned if no offer is made.";
-const BUILTIN = "NEWSWIRE public API";
+const BUILTIN = "Samyabadi public API";
 
-const shared: { researchUrl?: string; articleUrl?: string; slug?: string } = {};
+const shared: { articleUrl?: string; slug?: string } = {};
 
 let anonymous: APIRequestContext;
 test.beforeAll(async () => {
@@ -63,59 +62,25 @@ test("add a source through the Sources dialog and fetch the fixture feed", async
   await expect(page.getByRole("row", { name: new RegExp(FEED_TITLE) })).toContainText("4");
 });
 
-test("create a headline with keywords and see the live preview match", async ({ page }) => {
-  await page.goto("/headlines/new");
-  await field(page, "Headline").fill(HEADLINE);
+test("open a story in Live News and start an article from it", async ({ page }) => {
+  await page.goto("/live");
+  await page.getByRole("button", { name: keepers.title, exact: true }).click();
 
-  const preview = page.locator("aside").filter({ hasText: "Live preview" });
-  await expect(preview).toContainText("Add a primary keyword");
+  const report = page.getByRole("dialog", { name: keepers.title });
+  await expect(report).toBeVisible();
+  await report.getByRole("button", { name: "Start article from this" }).click();
 
-  await page.getByLabel("Primary keywords").fill("lighthouse keepers");
-  await page.getByLabel("Primary keywords").press("Enter");
-  await page.getByLabel("Synonyms and alternate spellings").fill("lightkeepers");
-  await page.getByLabel("Synonyms and alternate spellings").press("Enter");
-  await expect(page.getByRole("button", { name: "Remove lighthouse keepers" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Remove lightkeepers" })).toBeVisible();
-
-  // The preview dry-runs the rules against the collected reports.
-  await expect(preview.getByRole("link", { name: keepers.title })).toBeVisible();
-  await expect(preview.getByRole("link", { name: lightkeepers.title })).toBeVisible();
-  await expect(preview.getByText("Would match")).toBeVisible();
-  await expect(preview.getByText(cycleLanes.title)).toHaveCount(0);
-  await expect(preview.getByText(museum.title)).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Create headline" }).click();
-  await expect(page).toHaveURL(/\/research\/[0-9a-f-]{36}/);
-  await expect(toast(page, "Headline created")).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1, name: HEADLINE })).toBeVisible();
-  shared.researchUrl = page.url();
-});
-
-test("verify a match in the Research workspace, then start an article", async ({ page }) => {
-  test.skip(!shared.researchUrl, "needs the headline from the previous step");
-  await page.goto(shared.researchUrl!);
-
-  const match = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: keepers.title, exact: true }) });
-  await expect(match).toBeVisible();
-  await match.getByRole("button", { name: `Verify: ${keepers.title}` }).click();
-  await expect(toast(page, "Marked verified")).toBeVisible();
-  await expect(match.getByText("Verified", { exact: true })).toBeVisible();
-  await expect(match.getByRole("button", { name: `Verify: ${keepers.title}` })).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Start article" }).click();
+  // The draft carries the story's headline and has the story as its source.
   await expect(page).toHaveURL(/\/articles\/[0-9a-f-]{36}/);
-  await expect(toast(page, "Draft article created from this research")).toBeVisible();
+  await expect(field(page, "Headline")).toHaveValue(keepers.title);
   shared.articleUrl = page.url();
 });
 
-test("edit and save the article with ⌘S, approve it and publish to the built-in API", async ({ page }) => {
+test("edit and save the article with ⌘S, then publish to the built-in API in one step", async ({ page }) => {
   test.skip(!shared.articleUrl, "needs the article from the previous step");
   await page.goto(shared.articleUrl!);
 
-  // The draft starts from the research template, which blocks publishing until it is rewritten.
   const body = page.getByRole("textbox", { name: "Article body" });
-  await expect(body).toContainText("[EDITOR:");
-  await expect(page.getByText("Template instructions ([EDITOR: …]) are still in the text.")).toBeVisible();
 
   await field(page, "Headline").fill(ARTICLE_HEADLINE);
   await body.click();
@@ -134,12 +99,10 @@ test("edit and save the article with ⌘S, approve it and publish to the built-i
   await page.keyboard.press("ControlOrMeta+S");
   await expect(toast(page, "Saved v2")).toBeVisible();
   await expect(page.getByText("Unsaved changes")).toHaveCount(0);
-  await expect(body).not.toContainText("[EDITOR:");
-  await expect(page.getByText("Template instructions ([EDITOR: …]) are still in the text.")).toHaveCount(0);
 
-  // Approve straight from draft (the administrator holds the approve permission).
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(toast(page, "Approved. It is ready to publish.")).toBeVisible();
+  // The administrator may approve, so there is nothing to submit or approve first: Publish does it.
+  await expect(page.getByRole("button", { name: "Submit for review" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
 
   // The built-in site is ticked by default and "Now" is the default time.
   const publishing = page.getByRole("region", { name: "Publish", exact: true });

@@ -1,5 +1,5 @@
 /**
- * Thin fetch wrapper for the NEWSWIRE API. The browser talks only to this origin; Next.js proxies
+ * Thin fetch wrapper for the Samyabadi API. The browser talks only to this origin; Next.js proxies
  * /api/* to FastAPI. Session auth is an HttpOnly cookie; unsafe methods carry the CSRF token.
  */
 
@@ -82,7 +82,7 @@ export async function api<T = unknown>(path: string, opts: Options = {}): Promis
     });
   } catch (e) {
     if ((e as Error).name === "AbortError") throw e;
-    throw new ApiError(0, "network_error", "Cannot reach the NEWSWIRE server. Check that the API is running.");
+    throw new ApiError(0, "network_error", "Cannot reach the Samyabadi server. Check that the API is running.");
   }
   if (res.status === 204) return undefined as T;
   const type = res.headers.get("content-type") ?? "";

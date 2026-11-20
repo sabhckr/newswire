@@ -9,7 +9,7 @@ test("first visit leads to /setup, which creates the administrator and signs the
   // A fresh install has no users: the app sends the visitor to the login page, which sends them to setup.
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await expect(page.getByText("Set up NEWSWIRE")).toBeVisible();
+  await expect(page.getByText("Set up Samyabadi")).toBeVisible();
 
   await page.getByLabel("Your name").fill(ADMIN.name);
   await page.getByLabel("Email").fill(ADMIN.email);
@@ -24,7 +24,7 @@ test("first visit leads to /setup, which creates the administrator and signs the
   await page.getByRole("button", { name: "Create administrator" }).click();
 
   await expect(page).toHaveURL(/\/sources\?welcome=1$/);
-  await expect(page.getByText("Welcome to NEWSWIRE")).toBeVisible();
+  await expect(page.getByText("Welcome to Samyabadi")).toBeVisible();
   await expect(page.getByRole("button", { name: `Account: ${ADMIN.name}` })).toBeVisible();
 
   const status = await page.request.get("/api/v1/auth/setup-status");

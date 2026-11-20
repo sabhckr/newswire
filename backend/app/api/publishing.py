@@ -236,13 +236,13 @@ def _update_website(db: Session, d: PublishingDestination, data: dict, current: 
 
 @router.post("/destinations/{dest_id}/teach", response_model=TeachStatusOut)
 def start_teach(dest_id: uuid.UUID, db: Session = Depends(get_db), current: CurrentUser = Depends(require(P.PUBLISHING_MANAGE))):
-    """Open a browser window on the computer running NEWSWIRE so an administrator can show it the
+    """Open a browser window on the computer running Samyabadi so an administrator can show it the
     website's post form once. Poll GET …/teach for progress."""
     d = get_or_404(db, PublishingDestination, dest_id, "Destination")
     if d.kind != "website":
         raise AppError(400, "bad_request", "Only website destinations are taught")
     if (d.config or {}).get("platform") != "custom":
-        raise AppError(409, "conflict", "This website is WordPress; NEWSWIRE already knows how to publish there")
+        raise AppError(409, "conflict", "This website is WordPress; Samyabadi already knows how to publish there")
     session = website.start_teaching(d)
     record(db, "destination.teach_started", f"Teaching started for {d.name}", actor=current,
            entity_type="destination", entity_id=d.id)

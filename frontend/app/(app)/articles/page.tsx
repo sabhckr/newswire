@@ -157,7 +157,7 @@ export default function ArticlesPage() {
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Articles"
-        description="Original reporting written in NEWSWIRE. Every article is reviewed and approved before it can be published."
+        description="Write articles and publish them to your website and social pages."
         actions={
           write ? (
             <Button variant="primary" onClick={() => create.mutate()} loading={create.isPending}>
@@ -227,7 +227,7 @@ export default function ArticlesPage() {
             <EmptyState
               icon={FileText}
               title="No articles yet"
-              description="Start from a headline in the Research Workspace to get a draft with verified sources, or begin with a blank article."
+              description="Open a story in Live News and press “Start article from this”, or begin with a blank article."
               action={
                 write ? (
                   <Button variant="primary" onClick={() => create.mutate()} loading={create.isPending}>

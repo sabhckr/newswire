@@ -29,7 +29,7 @@ function spec(from: string, to: string): Spec {
 const STAGE_HELP: Record<string, string> = {
   draft: "Being written. Submit it for review when the text is ready.",
   in_review: "Waiting for an editor to approve it.",
-  approved: "Approved and ready to publish. Nothing goes out until someone with publishing rights publishes it.",
+  approved: "Ready to publish. Nothing goes out until it is published.",
   scheduled: "Will be published automatically at the scheduled time.",
   published: "Live on at least one destination.",
   unpublished: "Taken down from every destination. You can publish again or return it to draft.",
@@ -49,7 +49,13 @@ export function WorkflowPanel({
 }) {
   const confirm = useConfirm();
   const invalidate = useInvalidatePublishing();
-  const targets = (article.transitions ?? []).filter((t) => !PUBLICATION_STATES.has(t));
+  // Someone who may approve publishes straight from a draft (the Publish card does the review
+  // steps), so those two buttons are only shown to writers who need an editor.
+  const writing = article.status === "draft" || article.status === "in_review";
+  const targets = (article.transitions ?? []).filter(
+    (t) => !PUBLICATION_STATES.has(t) && !(canApprove && writing && (t === "in_review" || t === "approved")),
+  );
+  const help = canApprove && writing ? "Being written. Press Publish when it is ready." : (STAGE_HELP[article.status] ?? null);
   const move = useMutation({
     mutationFn: (target: string) => api<ArticleOut>(`/articles/${article.id}/transition`, { body: { target } }),
     onSuccess: (a, target) => {
@@ -84,7 +90,7 @@ export function WorkflowPanel({
 
   return (
     <Card>
-      <CardHeader title="Workflow" icon={GitBranch} />
+      <CardHeader title="Status" icon={GitBranch} />
       <CardBody className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={article.status} />
@@ -97,12 +103,10 @@ export function WorkflowPanel({
             </span>
           ) : null}
         </div>
-        <p className="text-xs text-muted">{STAGE_HELP[article.status] ?? null}</p>
-        {["approved", "scheduled"].includes(article.status) ? (
+        <p className="text-xs text-muted">{help}</p>
+        {!canApprove && ["approved", "scheduled"].includes(article.status) ? (
           <p className="rounded border border-border bg-surface-2 px-2 py-1.5 text-xs text-muted">
-            {canApprove
-              ? "You can approve articles, so your edits keep it approved. Re-read it before publishing."
-              : "Editing the headline, subtitle, body or featured image sends it back to review. Tags, sources and SEO fields do not."}
+            Editing the headline, subtitle, body or featured image sends it back to review. Tags, sources and SEO fields do not.
           </p>
         ) : null}
         {targets.length ? (
@@ -123,8 +127,8 @@ export function WorkflowPanel({
               );
             })}
           </div>
-        ) : (
-          <p className="text-xs text-muted">No workflow actions are available to you at this stage.</p>
+        ) : canApprove ? null : (
+          <p className="text-xs text-muted">Nothing for you to do at this stage.</p>
         )}
         {dirty && targets.length ? <p className="text-xs text-warning">Save your changes before changing the status.</p> : null}
       </CardBody>

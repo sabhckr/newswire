@@ -30,6 +30,9 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   use: {
     ...devices["Desktop Chrome"],
+    // E2E_BROWSER_CHANNEL=chrome runs the suite in the Google Chrome already installed on this
+    // computer, so `npx playwright install` (a browser download) is not needed.
+    ...(process.env.E2E_BROWSER_CHANNEL ? { channel: process.env.E2E_BROWSER_CHANNEL } : {}),
     baseURL: WEB_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

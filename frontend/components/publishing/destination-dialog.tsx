@@ -121,7 +121,7 @@ function SetupSteps({ kind, redirectUri }: { kind: string; redirectUri: string }
             </div>
           </li>
           <li>Copy the <b>Client ID</b> and <b>Client secret</b> above, save, then click <b>Connect</b> and pick the channel.</li>
-          <li>Until Google audits the project, YouTube may keep uploaded videos private. NEWSWIRE tells you when that happens.</li>
+          <li>Until Google audits the project, YouTube may keep uploaded videos private. Samyabadi tells you when that happens.</li>
         </ol>
       )}
     </details>
@@ -250,7 +250,7 @@ export function DestinationDialog({
         const w = d.website;
         if (w?.platform === "wordpress") toast.success(`Signed in to ${d.name}. It is WordPress, so it is ready to publish.`);
         else if (w?.taught) toast.success(`Saved ${d.name}.`);
-        else toast.success(`Signed in to ${d.name}. Now show NEWSWIRE the site's post form once (Teach).`);
+        else toast.success(`Signed in to ${d.name}. Now show Samyabadi the site's post form once (Teach).`);
         return;
       }
       if (isSocial(d.kind) && !d.connection?.connected) {
@@ -403,8 +403,8 @@ export function DestinationDialog({
                 error={errors.secret}
                 hint={
                   editing && destination?.has_secret
-                    ? "Stored encrypted and never shown. Leave blank to keep it; NEWSWIRE signs in again if you change it."
-                    : "Stored encrypted in NEWSWIRE on this computer. NEWSWIRE uses it to sign in whenever the website logs it out."
+                    ? "Stored encrypted and never shown. Leave blank to keep it; Samyabadi signs in again if you change it."
+                    : "Stored encrypted in Samyabadi on this computer. Samyabadi uses it to sign in whenever the website logs it out."
                 }
               >
                 <Input
@@ -419,8 +419,8 @@ export function DestinationDialog({
               </Field>
               {!editing ? (
                 <InlineAlert tone="info" title="What happens next">
-                  NEWSWIRE signs in once to check the details. A WordPress site is then ready straight away. For any other site, a browser
-                  window opens and you click the title box, the text box and the Publish button once, so NEWSWIRE learns the form.
+                  Samyabadi signs in once to check the details. A WordPress site is then ready straight away. For any other site, a browser
+                  window opens and you click the title box, the text box and the Publish button once, so Samyabadi learns the form.
                 </InlineAlert>
               ) : null}
               <details className="text-xs text-muted">
@@ -517,7 +517,7 @@ export function DestinationDialog({
                 htmlFor="dest-url"
                 required
                 error={errors.base_url}
-                hint={kind === "wordpress" ? "The site root, e.g. https://news.example.com. NEWSWIRE calls /wp-json/wp/v2/posts." : "NEWSWIRE POSTs JSON here. Private network addresses are refused."}
+                hint={kind === "wordpress" ? "The site root, e.g. https://news.example.com. Samyabadi calls /wp-json/wp/v2/posts." : "Samyabadi POSTs JSON here. Private network addresses are refused."}
               >
                 <Input id="dest-url" type="url" value={f.base_url} onChange={(e) => set("base_url", e.target.value)} placeholder="https://" aria-invalid={!!errors.base_url} />
               </Field>

@@ -14,7 +14,7 @@ import type { DestinationOut, TeachStatusOut } from "@/lib/types";
 const ACTIVE = new Set(["starting", "running"]);
 
 /**
- * "Teach once" for a website that is not WordPress: NEWSWIRE opens a browser window on the computer it
+ * "Teach once" for a website that is not WordPress: Samyabadi opens a browser window on the computer it
  * runs on, signs in, and the person clicks the title box, the text box and the Publish button. The
  * dialog follows along and can cancel.
  */
@@ -66,8 +66,8 @@ export function TeachDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title={`Show NEWSWIRE how to post on ${destination?.name ?? "this website"}`}
-        description="Once only. NEWSWIRE remembers the form and its sign-in, and publishes there by itself from then on."
+        title={`Show Samyabadi how to post on ${destination?.name ?? "this website"}`}
+        description="Once only. Samyabadi remembers the form and its sign-in, and publishes there by itself from then on."
         footer={
           active ? (
             <Button variant="ghost" loading={cancel.isPending} onClick={() => cancel.mutate()}>
@@ -91,7 +91,7 @@ export function TeachDialog({
         <div className="flex flex-col gap-3 text-sm">
           {s?.state === "done" ? (
             <InlineAlert tone="success" title="Done">
-              {s.message ?? "NEWSWIRE now knows this website's post form."} Publish an article to try it; use Teach again if the site's admin panel
+              {s.message ?? "Samyabadi now knows this website's post form."} Publish an article to try it; use Teach again if the site's admin panel
               changes.
             </InlineAlert>
           ) : active ? (
@@ -131,7 +131,7 @@ export function TeachDialog({
                 </li>
               </ol>
               <p className="inline-flex items-center gap-1.5 text-xs text-muted">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Takes about a minute. NEWSWIRE must be open on this computer, not a phone.
+                <CheckCircle2 className="h-3.5 w-3.5" /> Takes about a minute. Samyabadi must be open on this computer, not a phone.
               </p>
             </>
           )}

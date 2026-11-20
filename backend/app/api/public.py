@@ -62,6 +62,6 @@ def public_feed(db: Session = Depends(get_db)):
         + f"<description>{e(a.excerpt or a.seo_description or a.subtitle or '')}</description></item>"
         for a in rows
     )
-    xml = (f'<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>NEWSWIRE</title>'
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Samyabadi</title>'
            f"<link>{e(base)}</link><description>Published articles</description>{items}</channel></rss>")
     return Response(xml, media_type="application/rss+xml")

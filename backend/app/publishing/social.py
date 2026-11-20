@@ -268,7 +268,7 @@ def _facebook_complete(dest: PublishingDestination, code: str, client: httpx.Cli
         if listed:
             raise OAuthError("Your role on these Facebook Pages does not allow creating posts. Ask a Page admin "
                              "for full control or content access, then connect again.")
-        raise OAuthError("Facebook did not give NEWSWIRE access to any Page. Connect again and, when Facebook "
+        raise OAuthError("Facebook did not give Samyabadi access to any Page. Connect again and, when Facebook "
                          "asks, select the Page and allow every permission.")
     if dest.kind == "instagram":
         choices = []
@@ -330,7 +330,7 @@ def _youtube_complete(dest: PublishingDestination, code: str, client: httpx.Clie
                          f"Check the Client ID, the Client secret, and that {redirect_uri()} is an Authorized redirect URI.")
     refresh = data.get("refresh_token")
     if not refresh:
-        raise OAuthError("Google did not return a lasting connection. Remove NEWSWIRE at "
+        raise OAuthError("Google did not return a lasting connection. Remove Samyabadi at "
                          "https://myaccount.google.com/permissions and connect again.")
     resp = safe_request(client, "GET", f"{s.youtube_api_url}/channels?part=snippet&mine=true",
                         headers={"Authorization": f"Bearer {data['access_token']}", "Accept": "application/json"})
@@ -401,16 +401,16 @@ def _fb_error(resp: SafeResponse) -> PublishError:
     if code == 100 and sub == 33 or resp.status_code == 404:
         return RemoteGone(f"Facebook says it no longer exists ({msg})")
     if code in FB_RATE_LIMIT or (isinstance(code, int) and 80001 <= code <= 80014):
-        return PublishError(f"Facebook's rate limit was reached; NEWSWIRE will try again later. ({msg})")
+        return PublishError(f"Facebook's rate limit was reached; Samyabadi will try again later. ({msg})")
     if code in (10, 3) or (isinstance(code, int) and 200 <= code <= 299):
-        return PublishError(f"Facebook did not allow this: {msg}. Connect the Page again and allow NEWSWIRE to "
+        return PublishError(f"Facebook did not allow this: {msg}. Connect the Page again and allow Samyabadi to "
                             "create content on it.", retryable=False)
     if code == 368:
         return PublishError(f"Facebook blocked the post: {msg}", retryable=False)
     debug = _json(resp).get("debug_info")
     transient_upload = isinstance(debug, dict) and debug.get("retriable") is True
     if code in (1, 2) or resp.status_code >= 500 or err.get("is_transient") or transient_upload:
-        return PublishError(f"Facebook is temporarily unavailable; NEWSWIRE will try again. ({msg})")
+        return PublishError(f"Facebook is temporarily unavailable; Samyabadi will try again. ({msg})")
     return PublishError(f"Facebook refused it: {msg}", retryable=False)
 
 
@@ -579,8 +579,8 @@ class FacebookConnector:
 # from the internet (NEWSWIRE_PUBLIC_BASE_URL on https) serves its own /media files; otherwise
 # the picture's original public address (Openverse, Wikimedia) is used when there is one.
 
-IG_PUBLIC_HINT = ("Instagram downloads the picture from the internet, and this NEWSWIRE is only reachable on this "
-                  "computer. Use an image from the Image Library (Openverse or Wikimedia), or run NEWSWIRE on a "
+IG_PUBLIC_HINT = ("Instagram downloads the picture from the internet, and this Samyabadi is only reachable on this "
+                  "computer. Use an image from the Image Library (Openverse or Wikimedia), or run Samyabadi on a "
                   "public https address (NEWSWIRE_PUBLIC_BASE_URL).")
 
 
@@ -677,8 +677,8 @@ class InstagramConnector:
                 raise PublishError(" ".join(problems), retryable=False)
             video_url = public_video_url(article)
             if not video_url:
-                raise PublishError("Instagram downloads the video from the internet, and this NEWSWIRE is only "
-                                   "reachable on this computer. Run NEWSWIRE on a public https address "
+                raise PublishError("Instagram downloads the video from the internet, and this Samyabadi is only "
+                                   "reachable on this computer. Run Samyabadi on a public https address "
                                    "(NEWSWIRE_PUBLIC_BASE_URL) to post Reels.", retryable=False)
             res = self._call(client, "POST", f"/{self.ig_id}/media",
                              data={"media_type": "REELS", "video_url": video_url, "caption": caption})
@@ -753,7 +753,7 @@ def _yt_error(resp: SafeResponse) -> PublishError:
     if reason == "uploadLimitExceeded":
         return PublishError("This YouTube channel has reached its upload limit for now. Retry later.", retryable=False)
     if reason in ("rateLimitExceeded", "userRateLimitExceeded") or resp.status_code == 429:
-        return PublishError(f"YouTube's rate limit was reached; NEWSWIRE will try again later. ({msg})")
+        return PublishError(f"YouTube's rate limit was reached; Samyabadi will try again later. ({msg})")
     if resp.status_code == 401:
         return PublishError("The YouTube connection is no longer valid. Connect the channel again.", retryable=False)
     if reason == "youtubeSignupRequired":
@@ -761,7 +761,7 @@ def _yt_error(resp: SafeResponse) -> PublishError:
     if reason in ("videoNotFound",) or resp.status_code == 404:
         return RemoteGone(f"YouTube says the video no longer exists ({msg})")
     if resp.status_code >= 500:
-        return PublishError(f"YouTube is temporarily unavailable; NEWSWIRE will try again. ({msg})")
+        return PublishError(f"YouTube is temporarily unavailable; Samyabadi will try again. ({msg})")
     if resp.status_code == 403:
         return PublishError(f"YouTube did not allow this: {msg}", retryable=False)
     return PublishError(f"YouTube refused it: {msg}", retryable=False)
@@ -948,9 +948,9 @@ class YouTubeConnector:
                     offset = 0
                 continue
             if probe.status_code in (404, 410):
-                raise PublishError("The YouTube upload session expired; NEWSWIRE will start the upload again.")
+                raise PublishError("The YouTube upload session expired; Samyabadi will start the upload again.")
             raise _yt_error(probe)
-        raise PublishError("The upload to YouTube kept being interrupted; NEWSWIRE will try again later.")
+        raise PublishError("The upload to YouTube kept being interrupted; Samyabadi will try again later.")
 
     def _thumbnail(self, article, video_id: str, client) -> str | None:
         """Best effort: custom thumbnails need a verified channel, a JPEG/PNG and at most 2 MB."""
@@ -1044,7 +1044,7 @@ def validate_options(dest: PublishingDestination, article: Article, options: dic
                 raise ValueError(" ".join(problems))
             _check_file(article)
             if not public_video_url(article):
-                raise ValueError("Instagram Reels need NEWSWIRE on a public https address, because Instagram "
+                raise ValueError("Instagram Reels need Samyabadi on a public https address, because Instagram "
                                  "downloads the video from it.")
         elif article.featured_image is None:
             raise ValueError("Instagram needs a picture. Add a featured image to the article.")

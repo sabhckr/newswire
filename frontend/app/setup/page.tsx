@@ -59,7 +59,7 @@ export default function SetupPage() {
   }
 
   return (
-    <AuthCard title="Set up NEWSWIRE" description="Create the first administrator account. You can invite editors and researchers afterwards.">
+    <AuthCard title="Set up Samyabadi" description="Create the first administrator account. You can invite editors and researchers afterwards.">
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
         {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
         <Field label="Your name" htmlFor="display_name" error={formState.errors.display_name?.message}>

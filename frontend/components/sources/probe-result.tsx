@@ -34,7 +34,7 @@ export function ProbeResultPanel({ result }: { result: ProbeResult }) {
         </p>
         <p className="mt-1 text-text/80">{result.error ?? `Status: ${result.status}`}</p>
         {result.status === "blocked" ? (
-          <p className="mt-1 text-xs text-muted">The site’s robots.txt does not allow automated fetching of this URL. NEWSWIRE will not fetch it.</p>
+          <p className="mt-1 text-xs text-muted">The site’s robots.txt does not allow automated fetching of this URL. Samyabadi will not fetch it.</p>
         ) : null}
       </div>
     );

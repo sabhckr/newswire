@@ -43,7 +43,7 @@ export function NewsRow({
           <span aria-hidden>·</span>
           <Time value={when} />
           {!item.published_at ? (
-            <Tip content="The feed did not give a publication time; this is when NEWSWIRE retrieved it.">
+            <Tip content="The feed did not give a publication time; this is when Samyabadi retrieved it.">
               <span className="cursor-help underline decoration-dotted">retrieved</span>
             </Tip>
           ) : null}

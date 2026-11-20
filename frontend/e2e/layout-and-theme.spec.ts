@@ -49,7 +49,7 @@ test.describe("phone width", () => {
     const links = drawer.getByRole("navigation", { name: "Main" }).getByRole("link");
     await expect(links.first()).toBeVisible();
     const routes = await links.evaluateAll((els) => els.map((e) => e.getAttribute("href") ?? ""));
-    expect(routes.length, "sidebar routes found in the navigation drawer").toBeGreaterThanOrEqual(12);
+    expect(routes.length, "sidebar routes found in the navigation drawer").toBe(7);
     expect(await horizontalOverflow(page), "navigation drawer").toMatchObject({ offenders: [] });
     await page.keyboard.press("Escape");
     await expect(drawer).toBeHidden();

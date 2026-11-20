@@ -3,7 +3,6 @@
 import * as D from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
   Bell,
   CheckCheck,
   FileText,
@@ -17,7 +16,6 @@ import {
   Server,
   Settings,
   Sun,
-  Target,
   User,
   X,
 } from "lucide-react";
@@ -38,6 +36,9 @@ import type { ArticleOut, NotificationItem, Overview } from "@/lib/types";
 import { browserTimeZone, cn, relativeTime } from "@/lib/utils";
 
 import { Brand, NavLinks } from "./sidebar";
+
+/** Where a notification may lead (the server can still mention sections this app has no page for). */
+const HAS_PAGE = /^\/($|live|articles|images|publishing|sources|settings|system)/;
 
 export function useOverview() {
   return useQuery({
@@ -99,7 +100,7 @@ function Notifications() {
       await api(`/notifications/${n.id}/read`, { method: "POST" }).catch(() => undefined);
       qc.invalidateQueries({ queryKey: ["notifications"] });
     }
-    if (n.link) router.push(n.link);
+    if (n.link && HAS_PAGE.test(n.link)) router.push(n.link);
   };
   const unread = data?.unread ?? 0;
   return (
@@ -123,7 +124,7 @@ function Notifications() {
         </div>
         <div className="scroll-thin max-h-[60vh] overflow-y-auto">
           {!data?.items.length ? (
-            <p className="px-3 py-8 text-center text-sm text-muted">Nothing new. Matches for high-priority headlines and publishing results appear here.</p>
+            <p className="px-3 py-8 text-center text-sm text-muted">Nothing new. Publishing results appear here.</p>
           ) : (
             data.items.map((n) => (
               <button
@@ -160,10 +161,9 @@ function QuickCreate() {
     onError: (e) => toast.error(errorMessage(e)),
   });
   const items = [
-    can(PERMS.assignmentsWrite) && { label: "New headline", icon: Target, onSelect: () => router.push("/headlines/new") },
-    can(PERMS.sourcesWrite) && { label: "New source", icon: Rss, onSelect: () => router.push("/sources?new=1") },
     can(PERMS.articlesWrite) && { label: "New article", icon: FileText, onSelect: () => newArticle.mutate() },
-  ].filter(Boolean) as { label: string; icon: typeof Target; onSelect: () => void }[];
+    can(PERMS.sourcesWrite) && { label: "New source", icon: Rss, onSelect: () => router.push("/sources?new=1") },
+  ].filter(Boolean) as { label: string; icon: typeof FileText; onSelect: () => void }[];
   if (!items.length) return null;
   return (
     <Dropdown>
@@ -250,9 +250,6 @@ function UserMenu() {
         </DropdownItem>
         <DropdownItem icon={Server} onSelect={() => router.push("/system")}>
           System status
-        </DropdownItem>
-        <DropdownItem icon={Activity} onSelect={() => router.push("/activity")}>
-          Activity logs
         </DropdownItem>
         <DropdownSeparator />
         <DropdownItem icon={LogOut} onSelect={signOut}>

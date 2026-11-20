@@ -1,5 +1,11 @@
 # User guide
 
+> **Note.** The app's menu was simplified to Overview, Live News, Articles, Image Library,
+> Publishing, Sources and Settings. The sections below about *My Headlines*, the *Research
+> Workspace*, *Story Clusters*, *Analytics* and *Activity Logs* describe pages that are no longer
+> in the app, and articles are now published in one step (no separate *Submit for review* and
+> *Approve* for administrators and editors). See the changelog.
+
 A walk through NEWSWIRE for editors and researchers. What you can do depends on your role (see
 [SECURITY.md](SECURITY.md#roles)). Buttons you are not allowed to use are hidden.
 
