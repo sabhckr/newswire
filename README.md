@@ -96,7 +96,11 @@ Useful commands (run in `backend/`):
 ```
 
 The CLI covers `migrate`, `bootstrap`, `create-admin`, `reset-password`, `backup`,
-`verify-backup`, `restore` and `import-geonames`.
+`verify-backup`, `restore`, `import-geonames` and `robot-check`.
+
+Publishing through a website's own admin panel uses NEWSWIRE's robot browser engine
+(`backend/app/robot`, pure Python). It drives the Google Chrome, Microsoft Edge, Brave or
+Chromium already installed on the computer; `robot-check` shows which one and that it works.
 
 After changing API schemas, regenerate the frontend types from the repository root:
 

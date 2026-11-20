@@ -78,19 +78,26 @@ NEWSWIRE signs in once when you save, and finds out what the site is:
 * **WordPress** — it creates an application password for itself through the signed-in session
   and then publishes exactly like the *WordPress* destination below (drafts, updates, unpublish,
   images and video). If the application password is ever revoked, it makes a new one.
-* **Any other admin panel** — NEWSWIRE uses a *robot browser* (Chromium, installed by
-  `newswire install`). Click **Teach** on the destination card: a browser window opens on the
+* **Any other admin panel** — NEWSWIRE uses a *robot browser*: its own pure-Python engine
+  (`backend/app/robot`) drives the Google Chrome, Microsoft Edge, Brave or Chromium that is
+  already installed on the computer. Nothing extra is installed or downloaded, and your own
+  browser profile is never touched (each run uses a throwaway profile). Check it with
+  `python -m app.cli robot-check`; to use a particular browser set `NEWSWIRE_BROWSER_PATH`.
+  Click **Teach** on the destination card: a browser window opens on the
   computer running NEWSWIRE, signs in, and a blue bar asks you to (1) open the page for writing a
   new post and press *This is the page*, then click (2) the headline box, (3) the article text
   box, optionally the photo upload, excerpt, category and tags, and finally (4) the Publish
   button. Your clicks are only recorded; nothing is published while teaching. If the site asks
-  for a captcha or a one-time code, finish signing in in that window.
+  for a captcha or a one-time code, finish signing in in that window. Closing the window (or
+  pressing *Cancel*) stops teaching without changing anything.
 
   From then on NEWSWIRE fills in that form and presses Publish by itself, and records the link
   of the new post when the site shows one. It keeps the browser's sign-in, so it rarely has to
   log in again. Limits: no drafts, and *Unpublish* has to be done in the website's own admin
   panel. If the site's admin panel changes, click *Teach again*. A screenshot of any failed
-  attempt is kept in `storage/logs/robot/`.
+  attempt is kept in `storage/logs/robot/`. The robot waits for a Publish button that is greyed
+  out while a photo uploads, answers the site's "are you sure?" boxes with OK, and passes on the
+  site's own error message when a post is refused.
 
   The *Advanced* setting **Article text** chooses how the body is put in the text box:
   *Automatic* (formatted for rich editors, plain text for plain boxes), *Formatted (HTML)* or

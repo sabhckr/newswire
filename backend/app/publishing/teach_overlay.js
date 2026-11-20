@@ -1,16 +1,19 @@
-// NEWSWIRE "teach once" overlay. Injected into every frame of the setup browser window.
+// NEWSWIRE "teach once" overlay. Run in every frame of the setup browser window, in a JavaScript
+// world of its own (the website's scripts cannot see or call it).
 // The top frame shows a bar with the current instruction; every frame captures the click that
 // answers it, without letting the page act on that click (a Publish button is not pressed).
-// It talks to Python through three bindings: __nwTeachState(), __nwTeachPick(info) and
-// __nwTeachAction(name).
+// It tells Python what happened with __nwTeach(json) and Python answers by calling
+// __nwTeachSet(state).
 (() => {
-  if (window.__nwTeachInstalled) return;
-  window.__nwTeachInstalled = true;
+  if (globalThis.__nwTeachInstalled) return;
+  globalThis.__nwTeachInstalled = true;
   const isTop = window === window.top;
   let state = { mode: "idle" };
   let bar = null;
   let hovered = null;
+  let quietUntil = 0;
 
+  // <css-path>
   const unique = (sel) => {
     try {
       return document.querySelectorAll(sel).length === 1;
@@ -51,7 +54,7 @@
     }
     return parts.join(" > ");
   }
-  window.__nwCssPath = cssPath;
+  // </css-path>
 
   // The element the person meant: the input behind a label, the whole rich-text editor rather than
   // the paragraph inside it, the file input inside an upload box.
@@ -99,6 +102,14 @@
     hovered = el;
   }
 
+  const tell = (message) => {
+    try {
+      globalThis.__nwTeach(JSON.stringify(message));
+    } catch (err) {
+      /* the window is closing */
+    }
+  };
+  const refresh = () => tell({ type: "state" });
   const picking = () => state.mode === "pick";
   const inBar = (t) => bar && t && bar.contains(t);
   const block = (e) => {
@@ -112,17 +123,14 @@
   }
   document.addEventListener(
     "click",
-    async (e) => {
+    (e) => {
       if (!picking() || inBar(e.target)) return;
       block(e);
+      // The second half of a double-click must not answer the next question.
+      if (Date.now() < quietUntil) return;
       const el = pick(e.target);
       highlight(null);
-      try {
-        await window.__nwTeachPick(describe(el));
-      } catch (err) {
-        /* the window is closing */
-      }
-      refresh();
+      tell({ type: "pick", step: state.step, info: describe(el) });
     },
     true,
   );
@@ -141,15 +149,10 @@
     b.style.cssText =
       "margin-left:8px;padding:6px 12px;border-radius:6px;border:1px solid #fff;font:600 13px system-ui;cursor:pointer;" +
       (primary ? "background:#fff;color:#1e3a8a;" : "background:transparent;color:#fff;");
-    b.addEventListener("click", async (e) => {
+    b.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      try {
-        await window.__nwTeachAction(action);
-      } catch (err) {
-        /* closing */
-      }
-      refresh();
+      tell({ type: "action", step: state.step, name: action });
     });
     return b;
   }
@@ -163,8 +166,8 @@
         "position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#1e3a8a;color:#fff;" +
         "font:14px/1.4 system-ui,sans-serif;padding:10px 14px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;" +
         "box-shadow:0 2px 10px rgba(0,0,0,.35)";
-      document.documentElement.appendChild(bar);
     }
+    if (!bar.isConnected) document.documentElement.appendChild(bar);
     bar.replaceChildren();
     const text = document.createElement("div");
     text.style.cssText = "flex:1;min-width:240px";
@@ -177,16 +180,13 @@
     if (state.mode === "pick" || state.mode === "page" || state.mode === "login") bar.appendChild(button("Cancel", "cancel", false));
   }
 
-  async function refresh() {
-    try {
-      state = (await window.__nwTeachState()) || state;
-    } catch (e) {
-      return;
-    }
+  globalThis.__nwTeachSet = (next) => {
+    if (!next) return;
+    if (next.step !== state.step || next.mode !== state.mode) quietUntil = Date.now() + 400;
+    state = next;
     if (!picking()) highlight(null);
     render();
-  }
-  window.__nwRefresh = refresh;
+  };
   if (isTop) {
     document.addEventListener("DOMContentLoaded", refresh);
     setInterval(refresh, 600);

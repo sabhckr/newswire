@@ -18,6 +18,6 @@ pillow>=10.4
 argon2-cffi>=23.1
 nh3>=0.2.17
 cryptography>=43
-# Robot browser for publishing to websites through their own admin panel.
-# After installing: python -m playwright install chromium
-playwright>=1.49,<2
+# The robot browser for publishing through a website's own admin panel needs no package: the
+# engine in app/robot is pure Python (standard library) and drives the Chrome, Edge, Brave or
+# Chromium already installed on the computer. Check it with: python -m app.robot

@@ -5,6 +5,27 @@ Releases with a migration that drops or rewrites data are marked **⚠ data migr
 
 ## Unreleased
 
+### The robot browser is now NEWSWIRE's own pure-Python engine
+- Publishing through a website's own admin panel no longer uses Playwright. The new engine in
+  `backend/app/robot` is written in Python with the standard library only and speaks the Chrome
+  DevTools Protocol directly to the **Google Chrome, Microsoft Edge, Brave or Chromium already
+  installed** on the computer. There is no `playwright install` step, no Node.js driver and no
+  browser download; `playwright` is gone from the requirements.
+- On macOS and Linux the engine talks to the browser over a private pipe, so nothing listens on
+  the network. Each run uses a throwaway profile; your own browser is not touched.
+- Stored sign-ins and taught post forms from the Playwright version keep working.
+- **Teach:** closing the setup window is now a normal cancel (it used to be reported as *The setup
+  browser stopped … Target page, context or browser has been closed*); Teach can be started again
+  at once; a double-click no longer answers the next question; the overlay runs where the
+  website's own scripts cannot interfere with it.
+- **Publishing:** waits for a Publish button that is disabled while a photo uploads, answers
+  confirmation boxes, no longer waits 15 seconds on admin panels that save in the background,
+  reports the website's own error text, and says plainly when the website is down or the address
+  does not exist. Plain-text article bodies are escaped properly in rich-text boxes.
+- New: `python -m app.cli robot-check` (or `python -m app.robot`) says which browser will be used
+  and proves it works; `NEWSWIRE_BROWSER_PATH` chooses a browser. The Docker image installs
+  Debian's `chromium` instead of Playwright's download.
+
 ### Publish to your website, Facebook and YouTube from one place
 - The editor's **Publish** card lists every destination as a tick box: your website(s), Facebook
   Pages and YouTube channels. Tick one or several, then choose **Now**, **At a set time** or

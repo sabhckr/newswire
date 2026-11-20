@@ -7,20 +7,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     NEWSWIRE_STORAGE_DIR=/data \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    NEWSWIRE_BROWSER_PATH=/usr/bin/chromium
 
+# chromium: the browser NEWSWIRE's robot engine (app/robot) drives to publish through a website's
+# own admin panel. It runs without a window here.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client tini \
+    && apt-get install -y --no-install-recommends postgresql-client tini chromium fonts-noto-core \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home /app newswire \
     && mkdir -p /data && chown newswire /data
 
 WORKDIR /app
 COPY requirements.txt requirements.lock ./
-RUN pip install -r requirements.lock \
-    # Chromium for publishing to websites through their admin panel (app/publishing/website.py).
-    && python -m playwright install --with-deps chromium-headless-shell \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install -r requirements.lock
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app

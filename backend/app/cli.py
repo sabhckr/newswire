@@ -11,6 +11,7 @@ Commands
   import-geonames ADMIN1 CITIES [--min-population N]
   import-sources (--pack NAME | FILE)  Add sources from a bundled pack (e.g. bangladesh) or a sources JSON file
   list-source-packs            List the bundled source packs
+  robot-check                  Check that the robot browser (publishing through a website's admin panel) works
                                Import GeoNames admin1CodesASCII.txt and a cities file (CC BY 4.0)
 """
 
@@ -218,6 +219,15 @@ def cmd_import_geonames(args) -> int:
         db.close()
 
 
+def cmd_robot_check(_args) -> int:
+    from app.core.config import get_settings
+    from app.robot import self_check
+
+    result = self_check(get_settings().browser_path or None)
+    print(result["message"])
+    return 0 if result["ok"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m app.cli", description="NEWSWIRE administration")
     sub = p.add_subparsers(dest="command", required=True)
@@ -252,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--pack")
     sp.set_defaults(fn=cmd_import_sources)
     sub.add_parser("list-source-packs").set_defaults(fn=cmd_list_source_packs)
+    sub.add_parser("robot-check").set_defaults(fn=cmd_robot_check)
     args = p.parse_args(argv)
     from app.core.logging import configure_logging
 
